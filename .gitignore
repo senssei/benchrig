@@ -33,6 +33,9 @@ ENV/
 env/
 .env
 
+# Local ONNX model checkpoints
+models/
+
 # Testing & Coverage
 .pytest_cache/
 .coverage

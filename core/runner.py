@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from core.client import OllamaClient
+from core.client import BaseRuntimeClient, OllamaClient
 from core.hardware import HardwareSampler, get_system_specs
 from core.reasoning_parser import evaluate_reasoning_answer
 from core.sandbox import extract_python_code, run_code_with_tests
@@ -16,7 +16,7 @@ class BenchmarkRunner:
 
     def __init__(
         self,
-        client: OllamaClient,
+        client: BaseRuntimeClient,
         config: Dict[str, Any],
         progress_callback: Optional[Callable[[str, str], None]] = None,
     ):
@@ -71,6 +71,8 @@ class BenchmarkRunner:
                 "test_id": sc["id"],
                 "name": sc["name"],
                 "model": model,
+                "runtime": getattr(self.client, "name", "ollama"),
+                "engine": getattr(self.client, "engine_name", "llama.cpp"),
                 "success": resp["success"],
                 "eval_tok_per_sec": resp.get("eval_tok_per_sec", 0.0),
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
@@ -111,6 +113,8 @@ class BenchmarkRunner:
                 "test_id": sc["id"],
                 "name": sc["name"],
                 "model": model,
+                "runtime": getattr(self.client, "name", "ollama"),
+                "engine": getattr(self.client, "engine_name", "llama.cpp"),
                 "success": resp["success"] and test_res["passed"],
                 "passed": test_res["passed"],
                 "passed_tests": test_res["passed_tests"],
@@ -155,6 +159,8 @@ class BenchmarkRunner:
                 "test_id": sc["id"],
                 "name": sc["name"],
                 "model": model,
+                "runtime": getattr(self.client, "name", "ollama"),
+                "engine": getattr(self.client, "engine_name", "llama.cpp"),
                 "success": resp["success"] and eval_res["correct"],
                 "correct": eval_res["correct"],
                 "has_think_tags": eval_res["has_think_tags"],
@@ -199,6 +205,8 @@ class BenchmarkRunner:
                 "test_id": sc["id"],
                 "name": sc["name"],
                 "model": model,
+                "runtime": getattr(self.client, "name", "ollama"),
+                "engine": getattr(self.client, "engine_name", "llama.cpp"),
                 "success": resp["success"] and eval_res["correct"],
                 "correct": eval_res["correct"],
                 "extracted_answer": eval_res["extracted_answer"],
@@ -257,6 +265,8 @@ class BenchmarkRunner:
                 "name": sc["name"],
                 "context_size": ctx_size,
                 "model": model,
+                "runtime": getattr(self.client, "name", "ollama"),
+                "engine": getattr(self.client, "engine_name", "llama.cpp"),
                 "success": resp["success"],
                 "eval_tok_per_sec": resp.get("eval_tok_per_sec", 0.0),
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
@@ -267,11 +277,22 @@ class BenchmarkRunner:
             time.sleep(0.5)
         return results
 
-    def compute_model_scorecard(self, model: str, all_test_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def compute_model_scorecard(
+        self,
+        model: str,
+        all_test_results: List[Dict[str, Any]],
+        runtime: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Compute aggregated scorecard and composite score for a model."""
-        model_results = [r for r in all_test_results if r["model"] == model]
+        model_results = [
+            r for r in all_test_results
+            if r["model"] == model and (runtime is None or r.get("runtime", "ollama") == runtime)
+        ]
         if not model_results:
             return {}
+
+        sc_runtime = model_results[0].get("runtime", getattr(self.client, "name", "ollama"))
+        sc_engine = model_results[0].get("engine", getattr(self.client, "engine_name", "llama.cpp"))
 
         # 1. Performance metrics
         speed_records = [r for r in model_results if "eval_tok_per_sec" in r and r["eval_tok_per_sec"] > 0]
@@ -357,6 +378,8 @@ class BenchmarkRunner:
 
         return {
             "model": model,
+            "runtime": sc_runtime,
+            "engine": sc_engine,
             "composite_score": round(composite_score, 1),
             "coding_pass_rate": round(coding_pass_rate, 1),
             "reasoning_accuracy": round(reasoning_accuracy, 1),

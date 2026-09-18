@@ -17,10 +17,11 @@ Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **
 
 ## 📌 Overview
 
-**Ollama BenchRig** is an automated benchmarking and profiling suite that measures real-world code generation precision, logical reasoning, prompt prefill / generation speeds, context saturation, and hardware telemetry across local language models served via [Ollama](https://ollama.com).
+**Ollama BenchRig** is an automated benchmarking and profiling suite that measures real-world code generation precision, logical reasoning, prompt prefill / generation speeds, context saturation, and hardware telemetry across local language models served via [Ollama](https://ollama.com) (`llama.cpp`) and **Microsoft Foundry Server Runtime** (**Foundry Local** / ONNX Runtime GenAI).
 
 Unlike generic perplexity benchmarks, this suite focuses on **practical developer workloads**:
 - **Executes code in isolated sandboxes** and checks deterministic unit test assertions.
+- **Direct Cross-Runtime & Engine Comparison**: Benchmarks `llama.cpp` against Microsoft's ONNX Runtime GenAI side-by-side on identical hardware.
 - **Analyzes reasoning models** (e.g. DeepSeek-R1) by inspecting `<think>` token patterns and extracting final answers.
 - **Measures true Time to First Token (TTFT)** via high-precision streaming probes.
 - **Monitors hardware saturation in real-time** (Metal buffer memory & GPU utilization on Apple Silicon; VRAM, power draw, and temperatures on NVIDIA).
@@ -33,31 +34,36 @@ Unlike generic perplexity benchmarks, this suite focuses on **practical develope
 ```mermaid
 flowchart TD
     subgraph CLI ["Benchmark CLI (benchmark.py)"]
-        A[--check / --models / --suite / --runs] --> B[BenchmarkRunner]
+        A["--check / --runtime (ollama|foundry|all)\n--models / --suite / --runs"] --> B[BenchmarkRunner]
     end
 
     subgraph Hardware ["Cross-Platform Hardware Abstraction (core/hardware.py)"]
         B -->|Initialize| HW[HardwareProvider Factory]
-        HW -->|macOS Darwin| M1[DarwinAppleSiliconProvider\n- sysctl UMA RAM\n- vm_stat memory\n- ioreg GPU load\n- Ollama /api/ps Metal VRAM]
-        HW -->|Linux / WSL2| NV[LinuxNvidiaProvider\n- nvidia-smi VRAM\n- /proc/meminfo\n- GPU Power & Temp]
+        HW -->|macOS Darwin| M1["DarwinAppleSiliconProvider\n- sysctl UMA RAM\n- vm_stat memory\n- ioreg GPU load\n- Ollama /api/ps Metal VRAM"]
+        HW -->|Linux / WSL2| NV["LinuxNvidiaProvider\n- nvidia-smi VRAM\n- /proc/meminfo\n- GPU Power & Temp"]
+    end
+
+    subgraph Runtimes ["Unified Runtime Clients (core/client.py)"]
+        B --> BaseClient["BaseRuntimeClient (Protocol/ABC)"]
+        BaseClient --> Ollama["OllamaClient (llama.cpp)\n- http://localhost:11434"]
+        BaseClient --> Foundry["FoundryClient (ONNX Runtime GenAI)\n- http://localhost:5272/v1"]
     end
 
     subgraph Execution ["Test Execution Engine (core/runner.py)"]
-        B --> Client[Ollama REST Client\ncore/client.py]
-        Client --> S1["Speed Suite\n(Decode & Prefill TTFT)"]
-        Client --> S2["Coding Suite\n(Isolated Sandbox Runner)"]
-        Client --> S3["Reasoning Suite\n(<think> Parser & Verifier)"]
-        Client --> S4["Polish NLP Suite\n(Declension & Grammar)"]
-        Client --> S5["Context Scaling\n(512 to 8192 tokens)"]
+        Runtimes --> S1["Speed Suite\n(Decode & Prefill TTFT)"]
+        Runtimes --> S2["Coding Suite\n(Isolated Sandbox Runner)"]
+        Runtimes --> S3["Reasoning Suite\n(<think> Parser & Verifier)"]
+        Runtimes --> S4["Polish NLP Suite\n(Declension & Grammar)"]
+        Runtimes --> S5["Context Scaling\n(512 to 8192 tokens)"]
         
-        S2 --> Sandbox[Sandboxed Python Subprocess\ncore/sandbox.py]
-        S3 --> ReasonParser[Reasoning Answer Extractor\ncore/reasoning_parser.py]
+        S2 --> Sandbox["Sandboxed Python Subprocess\ncore/sandbox.py"]
+        S3 --> ReasonParser["Reasoning Answer Extractor\ncore/reasoning_parser.py"]
     end
 
     subgraph Reporting ["Reporting & Output (reporting/)"]
-        B --> Leaderboard[Rich Terminal Leaderboard]
-        B --> MarkdownReport[Markdown Report Generator\nresults/LATEST_SUMMARY.md]
-        B --> JSONHistory[JSON History Dumps\nresults/runs/*.json]
+        B --> Leaderboard["Rich Terminal Leaderboard\n(Dedicated 'Runtime' Column)"]
+        B --> MarkdownReport["Markdown Report Generator\n(Cross-Engine Delta Section)"]
+        B --> JSONHistory["JSON History Dumps\nresults/runs/*.json"]
     end
 ```
 
@@ -67,13 +73,32 @@ flowchart TD
 
 | Feature | Description |
 | :--- | :--- |
-| 🚀 **High-Precision Timing** | Measures generation tokens/sec, prefill tokens/sec, and Time to First Token (TTFT) via nanosecond-precision streaming. |
+| 🚀 **Multi-Runtime Engine Support** | Evaluate models across **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (ONNX Runtime GenAI) with unified CLI and scoring. |
+| ⏱ **High-Precision Timing** | Measures generation tokens/sec, prefill tokens/sec, and Time to First Token (TTFT) via nanosecond-precision streaming. |
 | 💻 **Automated Sandboxed Coding** | Automatically extracts code blocks from LLM responses, wraps them with test harnesses, and executes them in isolated subprocesses against test assertions. |
 | 🧠 **Reasoning & `<think>` Parser** | Detects whether models generate chain-of-thought blocks (`<think>...</think>`), calculates thinking token volume, and extracts final answers. |
 | 📐 **Context Scaling (512 - 8k)** | Progressively loads larger contexts (512, 1024, 2048, 4096, 8192 tokens) to assess TTFT degradation and memory growth. |
 | 📊 **Hardware Telemetry** | Samples GPU/UMA memory usage, GPU utilization %, temperatures, and power draw during execution without requiring root on macOS. |
-| 🏆 **Leaderboard & Markdown Reports** | Produces Rich terminal tables with category medals (🥇, 🥈, 🥉) and self-contained Markdown summaries in `results/LATEST_SUMMARY.md`. |
-| 🔌 **Built-in MCP Server** | Exposes local Ollama models (`qwen2.5-coder:7b`, `llama3.1:8b`, etc.) as tools for AI agents with zero cloud token cost. |
+| 🏆 **Leaderboard & Markdown Reports** | Produces Rich terminal tables with category medals (🥇, 🥈, 🥉), runtime indicators, and comparative Markdown summaries in `results/LATEST_SUMMARY.md`. |
+| 🔌 **Built-in MCP Server** | Exposes local models (`qwen2.5-coder:7b`, `llama3.1:8b`, etc.) as tools for AI agents with zero cloud token cost. |
+
+---
+
+## 📚 Tutorials & Documentation
+
+Comprehensive step-by-step tutorials and engineering deep dives are available in [`docs/`](docs/README.md):
+
+### 🚀 Step-by-Step Hands-On Tutorials:
+1. [**Tutorial 1: Quickstart Guide**](docs/tutorials/01_QUICKSTART_GUIDE.md) – Zero to benchmark in 5 minutes across macOS and Linux/WSL2.
+2. [**Tutorial 2: Foundry GPU Setup (WSL2 / Linux)**](docs/tutorials/02_FOUNDRY_GPU_SETUP.md) – Complete guide for NVIDIA GPU acceleration on Microsoft Foundry Local (Cache Injection & Direct ONNX GenAI).
+3. [**Tutorial 3: Fair 1:1 Cross-Engine Benchmarking**](docs/tutorials/03_CROSS_ENGINE_BENCHMARKING.md) – Standardizing parameters, cached baseline evaluation (`--baseline`), and scorecards.
+4. [**Tutorial 4: Zero-Token-Cost Agent Integration**](docs/tutorials/04_AGENT_INTEGRATION_MCP.md) – Connecting local LLMs to coding agents (Antigravity, Claude Code, Cursor) with AST self-healing.
+5. [**Tutorial 5: Authoring Custom Benchmark Scenarios**](docs/tutorials/05_CUSTOM_SCENARIO_AUTHORING.md) – Designing deterministic coding challenges, reasoning puzzles, and test harnesses.
+
+### 📖 Technical Documentation Guides:
+- [**System Architecture & Design**](docs/ARCHITECTURE.md) | [**CLI Reference & Options**](docs/CLI_USAGE.md) | [**Configuration Reference**](docs/CONFIGURATION.md)
+- [**Foundry Local, CUDA & TensorRT Guide**](docs/FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md) | [**Hardware Telemetry**](docs/HARDWARE_TELEMETRY.md)
+- [**Model Context Protocol (MCP) Integration**](docs/MCP_SERVER.md) | [**Benchmark Suites**](docs/BENCHMARK_SUITES.md) | [**Developer & Contributing Guide**](docs/DEVELOPER_GUIDE.md)
 
 ---
 
@@ -112,15 +137,22 @@ python3 benchmark.py --check
 ## 💻 CLI Usage & Examples
 
 ### 1. Diagnostic Environment Check
-Verifies Ollama connectivity, lists installed models, and displays detected hardware:
+Verifies Ollama & MS Foundry Server connectivity, lists installed models across runtimes, and displays detected hardware:
 ```bash
 python3 benchmark.py --check
 ```
 
-### 2. Benchmark All Installed Models
-Runs all suites (`speed`, `coding`, `reasoning`, `polish`, `context`) across every installed model:
+### 2. Multi-Runtime & Cross-Engine Comparison
+Compare models running under **Ollama** (`llama.cpp`) and **MS Foundry** (ONNX Runtime GenAI) head-to-head on the same hardware:
 ```bash
-python3 benchmark.py --models installed
+# Compare all installed models across both runtimes:
+python3 benchmark.py --runtime all --models installed
+
+# Compare specific models across engines:
+python3 benchmark.py --models ollama:qwen2.5-coder:7b,foundry:phi-4
+
+# Benchmark exclusively on Microsoft Foundry Server:
+python3 benchmark.py --runtime foundry --models phi-4,qwen2.5-coder-7b
 ```
 
 ### 3. Benchmark Specific Models
@@ -138,17 +170,19 @@ python3 benchmark.py --models qwen2.5-coder:7b --suite coding --runs 2
 python3 benchmark.py --models llama3.1:8b --suite context
 ```
 
-### 5. Pull Recommended Models
-Pulls missing standard models from the Ollama registry:
+### 5. Pull / Acquire Recommended Models
+Downloads missing standard models from the respective Ollama or MS Foundry catalog:
 ```bash
 python3 benchmark.py --pull-recommended
+# Or specify runtime:
+python3 benchmark.py --runtime foundry --pull-recommended
 ```
 
 ---
 
 ## ⚙️ Configuration (`config.yaml`)
 
-Edit [config.yaml](config.yaml) to customize execution parameters, Ollama endpoints, and scoring weights:
+Edit [config.yaml](config.yaml) to customize execution parameters, endpoints, and scoring weights:
 
 ```yaml
 ollama:
@@ -158,8 +192,17 @@ ollama:
   unload_after_test: true  # Keeps memory clean between model runs
   default_num_ctx: 4096
 
+foundry:
+  base_url: "http://localhost:5272/v1"  # Microsoft Foundry Local REST endpoint
+  auto_detect_port: true                # Automatically queries active port via CLI
+  cli_path: "foundry"                   # Optional Foundry Local CLI executable
+  timeout_sec: 180
+  warmup: true
+  unload_after_test: true
+
 benchmark:
   default_runs: 1
+  default_runtime: "ollama"  # "ollama", "foundry", or "all"
   composite_weights:
     coding: 0.40           # 40% automated unit tests pass rate
     reasoning: 0.30        # 30% reasoning & logic ground truth
@@ -202,33 +245,42 @@ Add the following to your `~/Library/Application Support/Claude/claude_desktop_c
 
 ---
 
-## 🤖 Antigravity Skill & Standalone Plugin (`local-coder`)
+## 🤖 Antigravity Skills (`ollama-coder` & `foundry-coder`)
 
-The repository includes a ready-to-use **Antigravity Customization Skill** (`local-coder`) that equips AI coding agents with subcommands, model profiles, and an automated self-healing AST loop.
+The repository includes ready-to-use **Antigravity Customization Skills** that equip AI coding agents with subcommands, model profiles, and an automated self-healing AST loop:
+
+1. [**`ollama-coder`**](docs/OLLAMA_CODER_SKILL.md): Connects to local Ollama models (`qwen2.5-coder:7b`, `llama3.1:8b`).
+2. [**`foundry-coder`**](docs/FOUNDRY_CODER_SKILL.md): Connects to Microsoft Foundry Local models (`phi-3.5-mini`, `qwen3-0.6b`).
 
 ### 1-Click Global Installation
-Install the skill globally across all Antigravity projects on your machine:
 ```bash
+# Install Ollama coder skill:
 ./install_global_skill.sh
+
+# Install Microsoft Foundry coder skill:
+./install_foundry_skill.sh
 ```
 
-### CLI Subcommands
+### CLI Usage
 ```bash
-# Code generation with self-healing syntax loop
+# Code generation with self-healing syntax loop (Ollama):
 ask_local.py code --task "Implement a rate limiter" --output src/rate_limiter.py
 
-# Automated unit test generation
+# Code generation via Microsoft Foundry Local:
+ask_foundry.py code --task "Implement a rate limiter" --output src/rate_limiter.py
+
+# Automated unit test generation:
 ask_local.py test --file src/rate_limiter.py --framework pytest
 
-# Security and concurrency review
+# Security and concurrency review:
 ask_local.py review --file src/server.py --focus "race conditions and memory leaks"
 
-# Refactoring with type hints and docstrings
+# Refactoring with type hints and docstrings:
 ask_local.py refactor --file src/util.py --type-hints --docstrings
 ```
 
 ### Standalone Distributable Package
-Looking to publish or distribute this skill independently? The complete, standalone package is available in [`packages/antigravity-local-coder/`](packages/antigravity-local-coder/), complete with its own `plugin.json`, `mcp_config.json`, `install.sh`, and MIT license ready for its own GitHub repository.
+Looking to publish or distribute independently? The standalone package is available in [`packages/antigravity-local-coder/`](packages/antigravity-local-coder/), complete with its own `plugin.json`, `mcp_config.json`, `install.sh`, and MIT license ready for its own GitHub repository.
 
 ---
 
@@ -242,6 +294,24 @@ Test cases are stored as clean JSON files inside the [scenarios/](scenarios/) di
 - [scenarios/context_scaling.json](scenarios/context_scaling.json): Context scaling tests up to 8k tokens.
 - [scenarios/polish.json](scenarios/polish.json): Multilingual tests checking Polish language morphology and syntax.
 
+## 📚 Documentation
+
+Detailed architecture, configuration guides, benchmark specifications, and operational manuals are available in the [`docs/`](docs/) directory:
+
+| Document | Description |
+| :--- | :--- |
+| 🏛 [**System Architecture**](docs/ARCHITECTURE.md) | Deep dive into the Hardware Abstraction Layer (HAL), Runtime Abstraction Layer (RAL), sandbox isolation, and reporting pipeline. |
+| 🚀 [**WSL2 CUDA & TensorRT Guide**](docs/FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md) | Complete guide to configuring Microsoft Foundry Local with NVIDIA CUDA and TensorRT acceleration on WSL2. |
+| ⚙️ [**Configuration Reference**](docs/CONFIGURATION.md) | Full reference for `config.yaml`, environment variables (`OLLAMA_HOST`, `FOUNDRY_BASE_URL`), and dynamic port discovery. |
+| 🧪 [**Benchmark Suites Mechanics**](docs/BENCHMARK_SUITES.md) | Evaluation methodology for Speed, Coding, Reasoning, Polish NLP, and Context Scaling suites. |
+| 💻 [**CLI Usage & Recipes**](docs/CLI_USAGE.md) | Command-line parameters, scenario filtering, cross-engine flags, and automation scripts. |
+| 📊 [**Hardware Telemetry & Profiling**](docs/HARDWARE_TELEMETRY.md) | Real-time GPU VRAM, compute load, Apple Silicon UMA memory, power draw, and temperature sampling. |
+| 🤖 [**Local Coder Skill (Ollama)**](docs/LOCAL_CODER_SKILL.md) | Agent integration (`ask_local.py`), subcommands (`code`, `test`, `review`, `refactor`), and AST self-healing loop for Ollama. |
+| 🤖 [**Foundry Coder Skill (MS Foundry)**](docs/FOUNDRY_CODER_SKILL.md) | Agent integration (`ask_foundry.py`), autonomous model loading, and AST self-healing for Microsoft Foundry Local. |
+| 🔌 [**Model Context Protocol (MCP)**](docs/MCP_SERVER.md) | MCP server configuration, tool schemas, and integration for both `ollama-local` and `foundry-local`. |
+| 📝 [**Scenario Authoring Guide**](docs/SCENARIOS_GUIDE.md) | Schema reference and instructions for creating custom coding, reasoning, and context scaling scenarios. |
+| 👩‍💻 [**Developer & Contributing Guide**](docs/DEVELOPER_GUIDE.md) | Guide for adding runtime clients (`BaseRuntimeClient`), running test suites, and adhering to sandbox security. |
+
 ---
 
 ## 📁 Repository Structure
@@ -252,27 +322,65 @@ ollama-benchrig/
 ├── config.yaml               # Global configuration (endpoints, weights, thresholds)
 ├── requirements.txt          # Python dependencies (rich, PyYAML, requests)
 ├── setup_mac.sh              # Quickstart installer for macOS Apple Silicon
+├── install_global_skill.sh   # Global installer for local-coder (Ollama)
+├── install_foundry_skill.sh  # Global installer for foundry-coder (MS Foundry)
 ├── LICENSE                   # MIT License
 ├── README.md                 # Project documentation
 ├── AGENTS.md                 # Guidelines and skill protocols for AI agents
+├── ollama_mcp_server.py      # Zero-dependency stdio MCP server for Ollama
+├── foundry_mcp_server.py     # Zero-dependency stdio MCP server for Microsoft Foundry Local
 ├── core/
-│   ├── client.py             # Ollama REST client with streaming TTFT probe
+│   ├── client.py             # Ollama & MS Foundry runtime clients with streaming TTFT probe
 │   ├── hardware.py           # Cross-platform hardware providers (Darwin UMA / Linux CUDA)
+│   ├── onnx_client.py        # Direct ONNX Runtime GenAI CUDA client (Option 3)
 │   ├── runner.py             # Benchmark suite coordinator & scoring engine
 │   ├── sandbox.py            # Sandboxed Python test harness runner
 │   └── reasoning_parser.py   # <think> tag parser & answer extractor
+├── docs/                     # Comprehensive documentation guides (11 guides + 5 tutorials)
+│   ├── README.md             # Documentation & tutorials index
+│   ├── ARCHITECTURE.md
+│   ├── BENCHMARK_SUITES.md
+│   ├── CLI_USAGE.md
+│   ├── CONFIGURATION.md
+│   ├── DEVELOPER_GUIDE.md
+│   ├── FOUNDRY_CODER_SKILL.md
+│   ├── FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md
+│   ├── HARDWARE_TELEMETRY.md
+│   ├── MCP_SERVER.md
+│   ├── OLLAMA_CODER_SKILL.md
+│   ├── SCENARIOS_GUIDE.md
+│   └── tutorials/            # Hands-on step-by-step tutorials
+│       ├── 01_QUICKSTART_GUIDE.md
+│       ├── 02_FOUNDRY_GPU_SETUP.md
+│       ├── 03_CROSS_ENGINE_BENCHMARKING.md
+│       ├── 04_AGENT_INTEGRATION_MCP.md
+│       └── 05_CUSTOM_SCENARIO_AUTHORING.md
+├── packages/
+│   └── antigravity-local-coder/ # Distributable standalone skill package
 ├── reporting/
 │   ├── display.py            # Rich terminal banners and leaderboard UI
 │   └── markdown.py           # Comprehensive Markdown report generator
 ├── scenarios/                # Test scenario definitions (JSON)
+│   ├── coding.json
+│   ├── context_scaling.json
+│   ├── polish.json
+│   ├── reasoning.json
+│   └── speed.json
 ├── examples/
-│   └── calculator.py         # Sample module for test generation benchmarks
+│   ├── calculator.py         # Sample module for test generation benchmarks
+│   └── run_onnx_gpu.py       # Standalone direct ONNX GenAI CUDA runner
 ├── results/
+│   ├── 1TO1_COMPARISON_REPORT.md # Cross-engine comparative report
 │   ├── LATEST_SUMMARY.md     # Latest benchmark Markdown report
 │   ├── latest.json           # Latest scorecard JSON
 │   └── runs/                 # Historical benchmark runs
-└── tests/
-    └── test_hardware.py      # Cross-platform hardware provider unit test suite
+└── tests/                    # 100% offline unit test suite (63 unit tests)
+    ├── test_ask_local.py
+    ├── test_foundry_mcp_and_skill.py
+    ├── test_foundry_runtime.py
+    ├── test_hardware.py
+    ├── test_onnx_client.py
+    └── test_token_savings.py
 ```
 
 ---

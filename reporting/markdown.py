@@ -27,7 +27,7 @@ def generate_markdown_report(
     mem_kind = "UMA" if is_mac else "VRAM"
 
     lines = [
-        f"# 📊 Ollama Model Benchmark Report ({platform_label})",
+        f"# 📊 Local LLM Benchmark Report ({platform_label})",
         "",
         f"**Test Date**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`  ",
         f"**GPU / Accelerator**: `{system_specs.get('gpu_name', 'Unknown')}` ({system_specs.get('gpu_vram_total_mb', '0')} MB {system_specs.get('memory_type', 'VRAM')})  ",
@@ -42,13 +42,13 @@ def generate_markdown_report(
     ]
 
     if best_overall:
-        lines.append(f"- 🥇 **Overall Leader (Composite Score)**: **`{best_overall['model']}`** (Score: **{best_overall['composite_score']:.1f}/100**)")
+        lines.append(f"- 🥇 **Overall Leader (Composite Score)**: **`{best_overall['model']}`** [{best_overall.get('runtime', 'ollama')}] (Score: **{best_overall['composite_score']:.1f}/100**)")
     if best_coding:
-        lines.append(f"- 💻 **Top Coding Performer (Unit Tests Pass Rate)**: **`{best_coding['model']}`** (Passed Tests: **{best_coding['coding_pass_rate']:.1f}%**)")
+        lines.append(f"- 💻 **Top Coding Performer (Unit Tests Pass Rate)**: **`{best_coding['model']}`** [{best_coding.get('runtime', 'ollama')}] (Passed Tests: **{best_coding['coding_pass_rate']:.1f}%**)")
     if best_reasoning:
-        lines.append(f"- 🧠 **Top Reasoning Performer (Accuracy)**: **`{best_reasoning['model']}`** (Accuracy: **{best_reasoning['reasoning_accuracy']:.1f}%**)")
+        lines.append(f"- 🧠 **Top Reasoning Performer (Accuracy)**: **`{best_reasoning['model']}`** [{best_reasoning.get('runtime', 'ollama')}] (Accuracy: **{best_reasoning['reasoning_accuracy']:.1f}%**)")
     if fastest_speed:
-        lines.append(f"- ⚡ **Fastest Generation Speed**: **`{fastest_speed['model']}`** (**{fastest_speed['avg_eval_tok_sec']:.1f} tok/s**, TTFT: {fastest_speed['avg_ttft_sec']:.2f}s)")
+        lines.append(f"- ⚡ **Fastest Generation Speed**: **`{fastest_speed['model']}`** [{fastest_speed.get('runtime', 'ollama')}] (**{fastest_speed['avg_eval_tok_sec']:.1f} tok/s**, TTFT: {fastest_speed['avg_ttft_sec']:.2f}s)")
 
     if is_mac:
         lines.extend([
@@ -77,8 +77,8 @@ def generate_markdown_report(
     lines.extend([
         "## 📈 Leaderboard",
         "",
-        f"| Rank | Model | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill Speed (t/s) | Avg TTFT | Peak {mem_kind} | {mem_kind} Status |",
-        "|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
+        f"| Rank | Model | Runtime | Engine | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill Speed (t/s) | Avg TTFT | Peak {mem_kind} | {mem_kind} Status |",
+        "|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
     ])
 
     for idx, sc in enumerate(ranked, start=1):
@@ -86,8 +86,11 @@ def generate_markdown_report(
         vram_status = (
             "⚠️ Near Memory Limit" if sc.get("vram_warning") else ("✅ 100% Metal" if is_mac else "✅ 100% VRAM")
         )
+        rt = sc.get("runtime", "ollama")
+        rt_display = "MS Foundry" if "foundry" in str(rt).lower() else "Ollama"
+        engine_display = sc.get("engine", "llama.cpp" if rt_display == "Ollama" else "ONNX Runtime")
         lines.append(
-            f"| {medal} | **`{sc['model']}`** | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {sc['avg_prompt_tok_sec']:.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {vram_status} |"
+            f"| {medal} | **`{sc['model']}`** | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {sc['avg_prompt_tok_sec']:.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {vram_status} |"
         )
 
     # Token & Cloud Cost Savings Breakdown
@@ -110,11 +113,32 @@ def generate_markdown_report(
         lines.append(
             f"| **`{sc['model']}`** | {p_tok:,} | {e_tok:,} | **{s_tok:,}** | **${c_usd:.4f}** | **✅ $0.00** |"
         )
-    lines.extend([
-        "",
-        "> [!NOTE]",
-        "> *Estimated savings calculated against standard frontier coding model rates (Claude 3.5 Sonnet / GPT-4o: $3.00 / 1M prompt tokens, $15.00 / 1M completion tokens).",
-    ])
+    # Cross-runtime comparison if multiple runtimes evaluated
+    runtimes_present = {sc.get("runtime", "ollama") for sc in scorecards}
+    if len(runtimes_present) > 1:
+        lines.extend([
+            "",
+            "---",
+            "",
+            "## ⚖️ Engine Architecture Comparison: Ollama (`llama.cpp`) vs MS Foundry (`ONNX Runtime GenAI`)",
+            "",
+            "| Metric | Ollama (`llama.cpp`) | MS Foundry (`ONNX Runtime`) |",
+            "|:---|:---:|:---:|",
+        ])
+        ollama_scs = [sc for sc in scorecards if sc.get("runtime") == "ollama"]
+        foundry_scs = [sc for sc in scorecards if "foundry" in str(sc.get("runtime", "")).lower()]
+        avg_ollama_speed = sum(sc.get("avg_eval_tok_sec", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
+        avg_foundry_speed = sum(sc.get("avg_eval_tok_sec", 0) for sc in foundry_scs) / len(foundry_scs) if foundry_scs else 0.0
+        avg_ollama_ttft = sum(sc.get("avg_ttft_sec", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
+        avg_foundry_ttft = sum(sc.get("avg_ttft_sec", 0) for sc in foundry_scs) / len(foundry_scs) if foundry_scs else 0.0
+        avg_ollama_pass = sum(sc.get("coding_pass_rate", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
+        avg_foundry_pass = sum(sc.get("coding_pass_rate", 0) for sc in foundry_scs) / len(foundry_scs) if foundry_scs else 0.0
+        lines.extend([
+            f"| **Average Decode Speed** | {avg_ollama_speed:.1f} t/s | {avg_foundry_speed:.1f} t/s |",
+            f"| **Average Time to First Token (TTFT)** | {avg_ollama_ttft:.2f}s | {avg_foundry_ttft:.2f}s |",
+            f"| **Average Coding Pass Rate** | {avg_ollama_pass:.1f}% | {avg_foundry_pass:.1f}% |",
+            f"| **Evaluated Models** | {len(ollama_scs)} | {len(foundry_scs)} |",
+        ])
 
     # Detailed coding breakdown
     coding_tests = [r for r in raw_results if r.get("suite") == "coding"]
@@ -213,3 +237,119 @@ def generate_markdown_report(
         f.write(content)
 
     return content
+
+
+def generate_1to1_comparison_report(
+    scorecard_a: Dict[str, Any],
+    scorecard_b: Dict[str, Any],
+    raw_results_a: List[Dict[str, Any]],
+    raw_results_b: List[Dict[str, Any]],
+    system_specs: Dict[str, str],
+    pair_name: str = "Phi-3.5 Mini vs Phi-3 Mini (3.8B)",
+    output_path: str = "results/1TO1_COMPARISON_REPORT.md",
+) -> str:
+    """Generate comprehensive 1:1 cross-engine comparison Markdown report."""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    platform_label = system_specs.get("platform_short") or system_specs.get("platform", "Local LLM")
+    mod_a = scorecard_a.get("model", "Model A")
+    rt_a = "Ollama" if scorecard_a.get("runtime") == "ollama" else scorecard_a.get("runtime", "A")
+    eng_a = scorecard_a.get("engine", "llama.cpp")
+
+    mod_b = scorecard_b.get("model", "Model B")
+    rt_b = "MS Foundry" if scorecard_b.get("runtime") == "foundry" else scorecard_b.get("runtime", "B")
+    eng_b = scorecard_b.get("engine", "ONNX Runtime GenAI")
+
+    spd_a = scorecard_a.get("avg_eval_tok_sec", 0.0)
+    spd_b = scorecard_b.get("avg_eval_tok_sec", 0.0)
+    pref_a = scorecard_a.get("avg_prompt_tok_sec", 0.0)
+    pref_b = scorecard_b.get("avg_prompt_tok_sec", 0.0)
+    ttft_a = scorecard_a.get("avg_ttft_sec", 0.0)
+    ttft_b = scorecard_b.get("avg_ttft_sec", 0.0)
+    code_a = scorecard_a.get("coding_pass_rate", 0.0)
+    code_b = scorecard_b.get("coding_pass_rate", 0.0)
+    vram_a = scorecard_a.get("peak_vram_mb", 0.0)
+    vram_b = scorecard_b.get("peak_vram_mb", 0.0)
+
+    lines = [
+        f"# ⚖️ 1:1 Model Comparison: `{mod_a}` vs `{mod_b}`",
+        "",
+        f"**Benchmark Pair**: {pair_name}  ",
+        f"**Platform**: `{platform_label}` (`{system_specs.get('driver_version', 'N/A')}`)  ",
+        f"**Hardware**: `{system_specs.get('gpu_name', 'Unknown')}` ({system_specs.get('gpu_vram_total_mb', '0')} MB VRAM) | `{system_specs.get('cpu_model', 'Unknown')}` ({system_specs.get('cpu_cores', 'Unknown')} vCPUs) | `{system_specs.get('ram_total_gb', 'Unknown')} GB RAM`  ",
+        f"**Report Generated**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`  ",
+        "",
+        "---",
+        "",
+        "## 📊 Executive Summary & Head-to-Head Scorecard",
+        "",
+        f"| Metric | `{mod_a}` [{rt_a} / {eng_a}] | `{mod_b}` [{rt_b} / {eng_b}] | Delta / Advantage |",
+        "|:---|:---:|:---:|:---:|",
+        f"| **Decode Speed (Generation)** | **{spd_a:.1f} tok/s** | **{spd_b:.1f} tok/s** | " + (f"`{rt_a}` is **{spd_a/spd_b:.1f}x faster**" if spd_b > 0 and spd_a >= spd_b else f"`{rt_b}` is **{spd_b/spd_a:.1f}x faster**") + " |",
+        f"| **Prompt Prefill Speed** | **{pref_a:.1f} tok/s** | **{pref_b:.1f} tok/s** | " + (f"`{rt_a}` is **{pref_a/pref_b:.1f}x faster**" if pref_b > 0 and pref_a >= pref_b else f"`{rt_b}` is **{pref_b/pref_a:.1f}x faster**") + " |",
+        f"| **Time to First Token (TTFT)** | **{ttft_a:.2f}s** | **{ttft_b:.2f}s** | " + (f"`{rt_a}` has **{ttft_b/ttft_a:.1f}x lower latency**" if ttft_a > 0 and ttft_a <= ttft_b else f"`{rt_b}` has lower latency") + " |",
+        f"| **Coding Unit Test Pass Rate** | **{code_a:.1f}%** | **{code_b:.1f}%** | " + (f"`{rt_b}` leads by **+{code_b - code_a:.1f}%**" if code_b > code_a else f"`{rt_a}` leads by **+{code_a - code_b:.1f}%**") + " |",
+        f"| **Peak Memory Footprint** | **{vram_a:.0f} MB** (VRAM) | **{vram_b:.0f} MB** (RAM/VRAM) | Dedicated VRAM vs System RAM |",
+        f"| **Composite Benchmark Score** | **{scorecard_a.get('composite_score', 0):.1f}/100** | **{scorecard_b.get('composite_score', 0):.1f}/100** | " + (f"`{rt_a}` (+{scorecard_a.get('composite_score', 0) - scorecard_b.get('composite_score', 0):.1f})" if scorecard_a.get('composite_score', 0) >= scorecard_b.get('composite_score', 0) else f"`{rt_b}` (+{scorecard_b.get('composite_score', 0) - scorecard_a.get('composite_score', 0):.1f})") + " |",
+        "",
+        "---",
+        "",
+        "## 🔬 Scenario-by-Scenario Task Breakdown",
+        "",
+        f"| Scenario Name | `{mod_a}` [{rt_a}] Status | `{mod_b}` [{rt_b}] Status | Speed Comparison | Error / Diagnostic Notes |",
+        "|:---|:---:|:---:|:---:|:---|",
+    ]
+
+    tests_a = {r.get("test_id"): r for r in raw_results_a}
+    tests_b = {r.get("test_id"): r for r in raw_results_b}
+    all_test_ids = list(dict.fromkeys(list(tests_a.keys()) + list(tests_b.keys())))
+
+    for tid in all_test_ids:
+        ra = tests_a.get(tid, {})
+        rb = tests_b.get(tid, {})
+        tname = ra.get("name") or rb.get("name") or tid
+
+        status_a = f"✅ PASS ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})" if ra.get("passed") else f"❌ FAIL ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})"
+        status_b = f"✅ PASS ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})" if rb.get("passed") else f"❌ FAIL ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})"
+        spd_str = f"{ra.get('eval_tok_per_sec', 0.0):.1f} vs {rb.get('eval_tok_per_sec', 0.0):.1f} t/s"
+
+        err_notes = []
+        if ra.get("sandbox_error"):
+            err_notes.append(f"**{rt_a}**: `{str(ra['sandbox_error'])[:60]}...`")
+        if rb.get("sandbox_error"):
+            err_notes.append(f"**{rt_b}**: `{str(rb['sandbox_error'])[:60]}...`")
+        err_str = "<br>".join(err_notes) if err_notes else "Clean execution"
+
+        lines.append(f"| **{tname}** | {status_a} | {status_b} | {spd_str} | {err_str} |")
+
+    is_b_gpu = ("cuda" in mod_b.lower() or "gpu" in rt_b.lower() or "cuda" in str(scorecard_b.get("engine", "")).lower() or spd_b > 50)
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## 💡 Architectural Insights & Trade-offs",
+        "",
+        f"1. **Execution Provider & Acceleration**:",
+        f"   - **{rt_a} (`{eng_a}`)**: Evaluated via CUDA kernels on host GPU ({vram_a:.0f} MB peak VRAM, {spd_a:.1f} tok/s decode, {ttft_a:.2f}s TTFT).",
+        f"   - **{rt_b} (`{eng_b}`)**: Evaluated via {'CUDA Execution Provider (GPU)' if is_b_gpu else 'CPU Execution Provider'} ({vram_b:.0f} MB peak memory, {spd_b:.1f} tok/s decode, {ttft_b:.2f}s TTFT).",
+        "",
+        f"2. **Coding Quality Nuance**:",
+        f"   - `{mod_b}` achieved {code_b:.1f}% test pass rate across evaluated unit test sandbox suites.",
+        f"   - `{mod_a}` achieved {code_a:.1f}% test pass rate across evaluated unit test sandbox suites.",
+        "",
+        "3. **Zero Token Cost Economics**:",
+        f"   - Both engines ran completely locally on host hardware with zero API token spend.",
+        f"   - Total offloaded tokens: **{scorecard_a.get('total_tokens_saved', 0) + scorecard_b.get('total_tokens_saved', 0):,} tokens** (~${scorecard_a.get('est_cost_saved_usd', 0.0) + scorecard_b.get('est_cost_saved_usd', 0.0):.4f} USD frontier cloud equivalent saved).",
+        "",
+        "---",
+        "",
+        "*Generated automatically by Ollama BenchRig 1:1 Cross-Engine Analyzer.*",
+        "",
+    ])
+
+    content = "\n".join(lines)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return content
+

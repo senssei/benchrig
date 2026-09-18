@@ -5,24 +5,89 @@ ollama:
   unload_after_test: true
   default_num_ctx: 4096
 
+foundry:
+  base_url: "http://localhost:5272/v1"
+  auto_detect_port: true
+  cli_path: "foundry"
+  timeout_sec: 180
+  warmup: true
+  unload_after_test: true
+  default_max_tokens: 4096
+
+onnx:
+  models_dir: "models"
+  timeout_sec: 300
+  default_max_tokens: 4096
+  warmup: true
+  unload_after_test: true
+
 benchmark:
   default_runs: 1
+  default_runtime: "ollama"  # "ollama", "foundry", or "all"
   composite_weights:
     coding: 0.40
     reasoning: 0.30
     performance: 0.30
+
+# 1:1 Execution Alignment Parameters for Fair Cross-Engine Comparison
+execution_alignment_1to1:
+  context_tokens: 4096
+  temperature: 0.1
+  top_p: 0.9
+  seed: 42
+  warmup_runs: 1
+  timeout_sec: 180
+  unload_after_test: true
 
 hardware:
   sample_interval_sec: 0.15
   # "auto" computes 88% of total VRAM / Unified Memory. Or specify numeric MB (e.g. 11000 for 12GB GPU).
   vram_warning_threshold_mb: "auto"
 
+# 1:1 Direct Model Comparison Pairs (Ollama llama.cpp vs Microsoft Foundry ONNX Runtime)
+model_pairs_1to1:
+  - id: "phi_mini"
+    name: "Phi-3.5 Mini vs Phi-3 Mini (3.8B)"
+    ollama: "phi3:mini"
+    foundry: "phi-3.5-mini"
+    architecture: "Phi-3/3.5 Mini 3.8B"
+    recommended_suite: "coding"
+  - id: "phi4_mini"
+    name: "Phi-4 Mini (3.8B)"
+    ollama: "phi4-mini:latest"
+    foundry: "phi-4-mini"
+    architecture: "Phi-4 Mini 3.8B"
+    recommended_suite: "coding"
+  - id: "qwen_coder_7b"
+    name: "Qwen 2.5 Coder 7B"
+    ollama: "qwen2.5-coder:7b"
+    foundry: "qwen2.5-coder-7b"
+    architecture: "Qwen 2.5 Coder 7B"
+    recommended_suite: "coding"
+  - id: "mistral_7b"
+    name: "Mistral 7B"
+    ollama: "mistral:7b"
+    foundry: "mistral-7b-v0.2"
+    architecture: "Mistral 7B"
+    recommended_suite: "speed"
+  - id: "deepseek_r1_14b"
+    name: "DeepSeek R1 Distill 14B"
+    ollama: "deepseek-r1:14b"
+    foundry: "deepseek-r1-14b"
+    architecture: "DeepSeek R1 Distill 14B"
+    recommended_suite: "reasoning"
+
 recommended_models:
-  # Standard 7B-8B models (ideal for 8GB-16GB Mac or RTX 5070 12GB)
-  - "qwen2.5-coder:7b"
-  - "llama3.1:8b"
-  - "mistral:7b"
-  # Larger models (for Macs with 24GB-64GB+ Unified Memory)
-  # - "qwen2.5-coder:14b"
-  # - "deepseek-r1:14b"
-  # - "gemma3:12b"
+  ollama:
+    # Standard 7B-8B models (ideal for 8GB-16GB Mac or RTX 5070 12GB)
+    - "qwen2.5-coder:7b"
+    - "llama3.1:8b"
+    - "mistral:7b"
+    - "phi3:mini"
+  foundry:
+    - "phi-3.5-mini"
+    - "qwen3-0.6b"
+    - "phi-4"
+    - "phi-4-mini"
+    - "qwen2.5-coder-7b"
+
