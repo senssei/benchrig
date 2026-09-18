@@ -76,6 +76,7 @@ class BenchmarkRunner:
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
                 "ttft_sec": resp.get("ttft_sec", 0.0),
                 "eval_count": resp.get("eval_count", 0),
+                "prompt_eval_count": resp.get("prompt_eval_count", 0),
                 "total_time_sec": resp.get("total_time_sec", 0.0),
                 "hardware": hw,
             })
@@ -119,6 +120,7 @@ class BenchmarkRunner:
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
                 "ttft_sec": resp.get("ttft_sec", 0.0),
                 "eval_count": resp.get("eval_count", 0),
+                "prompt_eval_count": resp.get("prompt_eval_count", 0),
                 "sandbox_error": test_res.get("error", ""),
                 "hardware": hw,
             })
@@ -163,6 +165,7 @@ class BenchmarkRunner:
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
                 "ttft_sec": resp.get("ttft_sec", 0.0),
                 "eval_count": resp.get("eval_count", 0),
+                "prompt_eval_count": resp.get("prompt_eval_count", 0),
                 "hardware": hw,
             })
             time.sleep(0.5)
@@ -204,6 +207,7 @@ class BenchmarkRunner:
                 "prompt_tok_per_sec": resp.get("prompt_tok_per_sec", 0.0),
                 "ttft_sec": resp.get("ttft_sec", 0.0),
                 "eval_count": resp.get("eval_count", 0),
+                "prompt_eval_count": resp.get("prompt_eval_count", 0),
                 "hardware": hw,
             })
             time.sleep(0.5)
@@ -344,6 +348,13 @@ class BenchmarkRunner:
             except ValueError:
                 total_vram = 0.0
 
+        # 5. Token savings & cloud cost estimation
+        # Baseline reference: Frontier coding model pricing (Claude 3.5 Sonnet / GPT-4o: $3.00/1M prompt, $15.00/1M completion)
+        total_eval_tokens = sum(r.get("eval_count", 0) for r in model_results)
+        total_prompt_tokens = sum(r.get("prompt_eval_count", 0) for r in model_results)
+        total_tokens_saved = total_eval_tokens + total_prompt_tokens
+        est_cost_saved_usd = (total_prompt_tokens * 0.000003) + (total_eval_tokens * 0.000015)
+
         return {
             "model": model,
             "composite_score": round(composite_score, 1),
@@ -354,6 +365,10 @@ class BenchmarkRunner:
             "avg_ttft_sec": round(avg_ttft, 2),
             "peak_vram_mb": round(peak_vram, 1),
             "total_vram_mb": round(total_vram, 1),
+            "total_eval_tokens": total_eval_tokens,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_tokens_saved": total_tokens_saved,
+            "est_cost_saved_usd": round(est_cost_saved_usd, 4),
             "memory_type": self.specs.get("memory_type", "VRAM"),
             "gpu_type": self.specs.get("gpu_type", "unknown"),
             "vram_warning": vram_warning,

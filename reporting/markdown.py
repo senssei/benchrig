@@ -90,6 +90,32 @@ def generate_markdown_report(
             f"| {medal} | **`{sc['model']}`** | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {sc['avg_prompt_tok_sec']:.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {vram_status} |"
         )
 
+    # Token & Cloud Cost Savings Breakdown
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## ⚡ Cloud Token & Cost Savings (via Local Coder Offloading)",
+        "",
+        "By executing coding evaluations and assistant routines on local accelerators, cloud API quota consumption is completely eliminated:",
+        "",
+        "| Model | Prompt Tokens Offloaded | Tokens Generated | Total Cloud Tokens Saved | Est. Cloud API Savings* | Effective Cloud Spend |",
+        "|:---|:---:|:---:|:---:|:---:|:---:|",
+    ])
+    for sc in ranked:
+        p_tok = sc.get("total_prompt_tokens", 0)
+        e_tok = sc.get("total_eval_tokens", 0)
+        s_tok = sc.get("total_tokens_saved", 0)
+        c_usd = sc.get("est_cost_saved_usd", 0.0)
+        lines.append(
+            f"| **`{sc['model']}`** | {p_tok:,} | {e_tok:,} | **{s_tok:,}** | **${c_usd:.4f}** | **✅ $0.00** |"
+        )
+    lines.extend([
+        "",
+        "> [!NOTE]",
+        "> *Estimated savings calculated against standard frontier coding model rates (Claude 3.5 Sonnet / GPT-4o: $3.00 / 1M prompt tokens, $15.00 / 1M completion tokens).",
+    ])
+
     # Detailed coding breakdown
     coding_tests = [r for r in raw_results if r.get("suite") == "coding"]
     if coding_tests:

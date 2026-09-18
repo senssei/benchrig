@@ -131,3 +131,63 @@ def display_scenario_result(res: Dict[str, Any]):
         console.print(f"  [{model}] {name} ({ctx} ctx) -> Prefill: {p_tok:.1f} t/s | Decode: {tok_s:.1f} t/s | Mem: {vram:.0f}MB")
     else:
         console.print(f"  [{model}] {name} -> {tok_s:.1f} t/s | Mem: {vram:.0f}MB")
+
+
+def display_token_savings(scorecards: List[Dict[str, Any]]):
+    """Render Rich table detailing local tokens processed and estimated cloud cost savings."""
+    if not scorecards:
+        return
+
+    table = Table(
+        title="⚡ Cloud Token & Cost Savings (via Local Coder Offloading)",
+        header_style="bold green",
+        show_header=True,
+    )
+
+    table.add_column("Model", style="cyan", justify="left")
+    table.add_column("Prompt Ingested", justify="right", style="dim")
+    table.add_column("Completion Tokens", justify="right")
+    table.add_column("Total Tokens Saved", justify="right", style="bold green")
+    table.add_column("Est. Cloud API Savings*", justify="right", style="bold yellow")
+    table.add_column("Local Cost", justify="center", style="bold green")
+
+    total_prompt = 0
+    total_eval = 0
+    total_saved = 0
+    total_cost = 0.0
+
+    for sc in scorecards:
+        p_tok = sc.get("total_prompt_tokens", 0)
+        e_tok = sc.get("total_eval_tokens", 0)
+        s_tok = sc.get("total_tokens_saved", 0)
+        c_usd = sc.get("est_cost_saved_usd", 0.0)
+
+        total_prompt += p_tok
+        total_eval += e_tok
+        total_saved += s_tok
+        total_cost += c_usd
+
+        table.add_row(
+            f"[bold]{sc['model']}[/]",
+            f"{p_tok:,}",
+            f"{e_tok:,}",
+            f"{s_tok:,}",
+            f"${c_usd:.4f}",
+            "✅ $0.00",
+        )
+
+    if len(scorecards) > 1:
+        table.add_section()
+        table.add_row(
+            "[bold]Total Offloaded[/]",
+            f"[bold]{total_prompt:,}[/]",
+            f"[bold]{total_eval:,}[/]",
+            f"[bold]{total_saved:,}[/]",
+            f"[bold]${total_cost:.4f}[/]",
+            "[bold green]✅ $0.00[/]",
+        )
+
+    console.print(table)
+    console.print(
+        "[dim]* Est. savings compared against standard frontier coding models (Claude 3.5 Sonnet / GPT-4o: $3.00/1M prompt, $15.00/1M completion).[/]\n"
+    )

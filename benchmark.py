@@ -21,6 +21,7 @@ from reporting.display import (
     display_leaderboard,
     display_scenario_result,
     display_system_banner,
+    display_token_savings,
 )
 from reporting.markdown import generate_markdown_report
 
@@ -259,6 +260,7 @@ def main():
     # Display results
     console.print("\n")
     display_leaderboard(scorecards, specs=specs)
+    display_token_savings(scorecards)
 
     # Save outputs
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -284,7 +286,11 @@ def main():
     md_report_path = f"{args.output_dir}/LATEST_SUMMARY.md"
     generate_markdown_report(scorecards, all_raw_results, specs, output_path=md_report_path)
 
+    total_tokens_saved_all = sum(sc.get("total_tokens_saved", 0) for sc in scorecards)
+    total_cost_saved_all = sum(sc.get("est_cost_saved_usd", 0.0) for sc in scorecards)
+
     console.print(f"\n[bold green]✔ Benchmark completed in {total_duration:.1f}s![/]")
+    console.print(f"  [cyan]Cloud Tokens Saved:[/] [bold green]{total_tokens_saved_all:,}[/] ([bold]~${total_cost_saved_all:.4f} USD[/] equivalent)")
     console.print(f"  [cyan]Markdown Report:[/] [bold]{md_report_path}[/]")
     console.print(f"  [cyan]Raw JSON Data:[/] [bold]{raw_json_path}[/]\n")
 
