@@ -1,0 +1,41 @@
+[
+  {
+    "id": "reasoning_discount_tax",
+    "name": "Multi-Step Discount & Tax Calculation",
+    "prompt": "Solve the following problem carefully step by step: A jacket originally costs $150. The store gives a 20% discount. An 8% sales tax is then added to the discounted price. Finally, the customer uses a $15 store coupon deducted from the total. How much does the customer pay? End your response with 'Final Answer: 114.60' (or 114.6).",
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "exact_or_contains",
+    "expected_answer": "114.6",
+    "accepted_patterns": ["114.60", "114.6", "$114.60", "$114.6"]
+  },
+  {
+    "id": "reasoning_three_boxes",
+    "name": "Three Mislabeled Boxes Logic Puzzle",
+    "prompt": "You have three boxes: Box 1 is labeled 'Apples', Box 2 is labeled 'Oranges', and Box 3 is labeled 'Apples and Oranges'. You know that ALL THREE boxes are incorrectly labeled. You pick one fruit from Box 3 without looking inside, and it is an Apple. Deduce what is in each of the three boxes. At the end, clearly state your conclusion in the format: 'Box 1: [contents], Box 2: [contents], Box 3: [contents]'.",
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "regex",
+    "expected_answer": "Box 1: Oranges",
+    "accepted_patterns": [
+      "box 1.*orange.*box 2.*apple.*orange.*box 3.*apple",
+      "box 1: oranges.*box 2: apples and oranges.*box 3: apples"
+    ]
+  },
+  {
+    "id": "reasoning_venn_probability",
+    "name": "Set Theory & Probability",
+    "prompt": "In a school of 30 students, 18 take Physics, 15 take Chemistry, and 8 take both. A student is selected at random. What is the probability that this student takes NEITHER Physics NOR Chemistry? Show your work and state the final answer as a simplified fraction like 1/6 or decimal 0.167. End with 'Final Answer: 1/6'.",
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "exact_or_contains",
+    "expected_answer": "1/6",
+    "accepted_patterns": ["1/6", "5/30", "0.1667", "0.167"]
+  }
+]

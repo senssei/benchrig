@@ -1,0 +1,20 @@
+[
+  {
+    "id": "speed_quick_gen",
+    "name": "Raw Decode Speed (Short Prompt)",
+    "prompt": "Write a concise explanation of how an Operating System virtual memory page table works. Include page table entries, translation lookaside buffer (TLB), and page faults. Limit to around 200 words.",
+    "options": {
+      "temperature": 0.2,
+      "num_predict": 256
+    }
+  },
+  {
+    "id": "speed_throughput_long",
+    "name": "Throughput Generation (512 tokens)",
+    "prompt": "Generate a detailed technical comparison between TCP and UDP protocols, detailing header structures, handshake mechanisms, flow control algorithms, and typical network application use cases.",
+    "options": {
+      "temperature": 0.2,
+      "num_predict": 512
+    }
+  }
+]

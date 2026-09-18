@@ -1,0 +1,26 @@
+[
+  {
+    "context_size": 512,
+    "name": "Context 512 tokens",
+    "prompt_multiplier": 1,
+    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+  },
+  {
+    "context_size": 2048,
+    "name": "Context 2k tokens",
+    "prompt_multiplier": 4,
+    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+  },
+  {
+    "context_size": 4096,
+    "name": "Context 4k tokens",
+    "prompt_multiplier": 8,
+    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+  },
+  {
+    "context_size": 8192,
+    "name": "Context 8k tokens (VRAM Stress)",
+    "prompt_multiplier": 16,
+    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+  }
+]

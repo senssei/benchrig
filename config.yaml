@@ -1,0 +1,28 @@
+ollama:
+  base_url: "http://localhost:11434"
+  timeout_sec: 180
+  warmup: true
+  unload_after_test: true
+  default_num_ctx: 4096
+
+benchmark:
+  default_runs: 1
+  composite_weights:
+    coding: 0.40
+    reasoning: 0.30
+    performance: 0.30
+
+hardware:
+  sample_interval_sec: 0.15
+  # "auto" computes 88% of total VRAM / Unified Memory. Or specify numeric MB (e.g. 11000 for 12GB GPU).
+  vram_warning_threshold_mb: "auto"
+
+recommended_models:
+  # Standard 7B-8B models (ideal for 8GB-16GB Mac or RTX 5070 12GB)
+  - "qwen2.5-coder:7b"
+  - "llama3.1:8b"
+  - "mistral:7b"
+  # Larger models (for Macs with 24GB-64GB+ Unified Memory)
+  # - "qwen2.5-coder:14b"
+  # - "deepseek-r1:14b"
+  # - "gemma3:12b"

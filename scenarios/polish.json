@@ -1,0 +1,30 @@
+[
+  {
+    "id": "pl_grammar_and_declension",
+    "name": "Polish Grammar & Case Declension",
+    "prompt": "Popraw poniższe zdanie w języku polskim, korygując wszystkie błędy gramatyczne i odmiany przez przypadki: 'Wczoraj poszedłem do ten duży sklep i kupiłem dwa kilo jabłko oraz trzy bułka.' W odpowiedzi podaj wyłącznie poprawione zdanie.",
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 128
+    },
+    "check_type": "exact_or_contains",
+    "expected_answer": "Wczoraj poszedłem do tego dużego sklepu i kupiłem dwa kilo jabłek oraz trzy bułki.",
+    "accepted_patterns": [
+      "do tego dużego sklepu",
+      "dwa kilo jabłek",
+      "trzy bułki"
+    ]
+  },
+  {
+    "id": "pl_technical_summary",
+    "name": "Technical Summary in Polish",
+    "prompt": "Przeczytaj opis i odpowiedz w jednym zwięzłym zdaniu po polsku, czym jest 'Deadlock' (zakleszczenie): 'W systemach wielowątkowych zakleszczenie to sytuacja, w której co najmniej dwa wątki oczekują wzajemnie na zwolnienie zasobów trzymanych przez drugi wątek, co uniemożliwia dalsze wykonywanie obu procesów.' Odpowiedz krótko po polsku.",
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 256
+    },
+    "check_type": "exact_or_contains",
+    "expected_answer": "zasobów",
+    "accepted_patterns": ["zasob", "wątk", "blok", "oczekuj"]
+  }
+]
