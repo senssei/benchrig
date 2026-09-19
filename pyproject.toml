@@ -1,10 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "ollama-benchrig"
-version = "0.1.0"
+name = "benchrig"
+dynamic = ["version"]
 description = "Benchmarking and profiling rig for local LLMs on Ollama, Microsoft Foundry Local, and ONNX Runtime GenAI."
 readme = "README.md"
-license = { file = "LICENSE" }
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Rafal Warzycha" }]
+keywords = ["llm", "benchmark", "ollama", "foundry-local", "onnxruntime-genai", "cuda", "apple-silicon"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "requests>=2.31.0",
     "rich>=13.7.0",
@@ -14,7 +35,24 @@ dependencies = [
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8.0"]
 onnx-gpu = ["onnxruntime-genai-cuda"]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine"]
+
+[project.urls]
+Homepage = "https://github.com/senssei/benchrig"
+Issues = "https://github.com/senssei/benchrig/issues"
+Changelog = "https://github.com/senssei/benchrig/blob/main/CHANGELOG.md"
+
+[project.scripts]
+benchrig = "benchrig.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["benchrig*"]
+
+[tool.setuptools.package-data]
+benchrig = ["data/*.yaml", "data/scenarios/*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "benchrig.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

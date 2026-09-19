@@ -11,15 +11,40 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - run: pip install -r requirements-dev.txt
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - name: Smoke-test the installed wheel outside the checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/benchrig" --version
+          "$RUNNER_TEMP/venv/bin/benchrig" --help
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          from benchrig.cli import BUNDLED_DATA, SUITES, load_config
+          assert (BUNDLED_DATA / "config.yaml").is_file()
+          assert load_config()
+          for filename, _, _ in SUITES.values():
+              assert (BUNDLED_DATA / "scenarios" / filename).is_file(), filename
+          PY

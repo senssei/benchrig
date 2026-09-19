@@ -211,7 +211,7 @@ python3 examples/run_onnx_gpu.py \
 
 ### Programmatic Python Usage
 ```python
-from core.onnx_client import OnnxGenAiClient
+from benchrig.core.onnx_client import OnnxGenAiClient
 
 client = OnnxGenAiClient()
 print("CUDA Available:", client.is_cuda_available())

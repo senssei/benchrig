@@ -1,6 +1,6 @@
 # 📊 Hardware Telemetry & Real-Time Profiling
 
-This guide details the internal design, telemetry capture mechanisms, and cross-platform metrics gathered by **Ollama BenchRig**'s Hardware Abstraction Layer ([`core/hardware.py`](../core/hardware.py)).
+This guide details the internal design, telemetry capture mechanisms, and cross-platform metrics gathered by **BenchRig**'s Hardware Abstraction Layer ([`benchrig/core/hardware.py`](../benchrig/core/hardware.py)).
 
 ---
 
@@ -14,7 +14,7 @@ BenchRig provides real-time hardware telemetry without requiring administrative 
 ```mermaid
 flowchart TD
     subgraph Execution ["Benchmark Engine"]
-        Runner["BenchmarkRunner (core/runner.py)"]
+        Runner["BenchmarkRunner (benchrig/core/runner.py)"]
     end
 
     subgraph Sampler ["Hardware Sampling Engine"]

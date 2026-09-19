@@ -1,0 +1,7 @@
+include LICENSE README.md CHANGELOG.md
+prune tests
+prune docs
+prune examples
+prune .github
+prune models
+prune results

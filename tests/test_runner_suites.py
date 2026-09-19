@@ -3,8 +3,8 @@
 import unittest
 from unittest.mock import patch
 
-from core.client import BaseRuntimeClient
-from core.runner import BenchmarkRunner
+from benchrig.core.client import BaseRuntimeClient
+from benchrig.core.runner import BenchmarkRunner
 
 COMMON_KEYS = {
     "suite",
@@ -49,9 +49,9 @@ class FakeClient(BaseRuntimeClient):
 class RunnerSuiteTests(unittest.TestCase):
     def setUp(self):
         patches = [
-            patch("core.runner.time.sleep"),
-            patch("core.runner.get_system_specs", return_value={}),
-            patch("core.runner.HardwareSampler"),
+            patch("benchrig.core.runner.time.sleep"),
+            patch("benchrig.core.runner.get_system_specs", return_value={}),
+            patch("benchrig.core.runner.HardwareSampler"),
         ]
         for p in patches:
             p.start()

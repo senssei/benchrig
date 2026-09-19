@@ -55,7 +55,7 @@ for path in sorted(glob.glob('results/runs/*.json')):
 Run the benchmark exclusively for Foundry, passing the baseline file:
 
 ```bash
-python3 benchmark.py \
+benchrig \
   --runtime foundry \
   --models foundry:phi-4-mini \
   --suite coding \
@@ -99,7 +99,7 @@ When evaluation concludes, BenchRig outputs a side-by-side comparative table:
 1. **Decode Speed (Generation)**: Rate of token emission during text synthesis (`eval_tokens / eval_duration_sec`). Measures interactive responsiveness.
 2. **Prompt Prefill Speed**: Rate of ingesting and embedding the input prompt (`prompt_tokens / prompt_eval_duration_sec`). Measures context processing speed.
 3. **Time to First Token (TTFT)**: Elapsed wall time from request dispatch to the arrival of the first output token. Slashed by GPU prefill acceleration.
-4. **Coding Pass Rate**: Percentage of deterministic unit tests passed in the isolated sandbox (`core/sandbox.py`).
+4. **Coding Pass Rate**: Percentage of deterministic unit tests passed in the isolated sandbox (`benchrig/core/sandbox.py`).
 5. **Peak VRAM / Memory Fit**: Maximum hardware allocation recorded during execution.
 
 ---
@@ -109,7 +109,7 @@ When evaluation concludes, BenchRig outputs a side-by-side comparative table:
 To re-display terminal tables and re-generate `1TO1_COMPARISON_REPORT.md` without invoking any inference engines:
 
 ```bash
-python3 benchmark.py --compare results/latest.json
+benchrig --compare results/latest.json
 # Or specify any historical run:
-python3 benchmark.py --compare results/runs/benchmark_20260918_235227.json
+benchrig --compare results/runs/benchmark_20260918_235227.json
 ```

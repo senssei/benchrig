@@ -11,7 +11,7 @@ RED="\033[0;31m"
 BOLD="\033[1m"
 NC="\033[0m"
 
-echo -e "${BOLD}${CYAN}=== Ollama BenchRig - macOS Apple Silicon Setup ===${NC}\n"
+echo -e "${BOLD}${CYAN}=== BenchRig - macOS Apple Silicon Setup ===${NC}\n"
 
 # 1. Check OS and architecture
 OS=$(uname -s)
@@ -51,9 +51,9 @@ echo -e "${CYAN}Activating virtual environment...${NC}"
 source "$VENV_DIR/bin/activate"
 
 # 4. Install dependencies
-echo -e "\n${CYAN}Installing dependencies from requirements.txt...${NC}"
+echo -e "\n${CYAN}Installing benchrig...${NC}"
 pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+pip install --quiet -e .
 echo -e "${GREEN}✔ Python dependencies installed successfully.${NC}"
 
 # 5. Check Ollama installation
@@ -74,10 +74,10 @@ else
 fi
 
 # 7. Run diagnostic environment check
-echo -e "\n${BOLD}${CYAN}Running environment diagnostics (benchmark.py --check):${NC}\n"
-python3 benchmark.py --check || true
+echo -e "\n${BOLD}${CYAN}Running environment diagnostics (benchrig --check):${NC}\n"
+benchrig --check || true
 
 echo -e "\n${BOLD}${GREEN}=== Setup Complete! macOS environment is configured ===${NC}"
 echo -e "To run a benchmark, execute:"
 echo -e "  ${BOLD}source .venv/bin/activate${NC}"
-echo -e "  ${BOLD}python3 benchmark.py --models qwen2.5-coder:7b,llama3.1:8b${NC}\n"
+echo -e "  ${BOLD}benchrig --models qwen2.5-coder:7b,llama3.1:8b${NC}\n"

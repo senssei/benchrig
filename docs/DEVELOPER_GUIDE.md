@@ -1,14 +1,14 @@
 # 👩‍💻 Developer & Contributing Guide
 
-This guide provides technical specifications for contributing to **Ollama BenchRig**, authoring new runtime providers, expanding test coverage, and maintaining architecture standards.
+This guide provides technical specifications for contributing to **BenchRig**, authoring new runtime providers, expanding test coverage, and maintaining architecture standards.
 
 ---
 
 ## 🏗 Architectural Conventions
 
-Ollama BenchRig is architected around two core abstraction layers:
-1. **Hardware Abstraction Layer (HAL)**: Defined in [`core/hardware.py`](../core/hardware.py) via `BaseHardwareProvider`.
-2. **Runtime Abstraction Layer (RAL)**: Defined in [`core/client.py`](../core/client.py) via `BaseRuntimeClient`.
+BenchRig is architected around two core abstraction layers:
+1. **Hardware Abstraction Layer (HAL)**: Defined in [`benchrig/core/hardware.py`](../benchrig/core/hardware.py) via `BaseHardwareProvider`.
+2. **Runtime Abstraction Layer (RAL)**: Defined in [`benchrig/core/client.py`](../benchrig/core/client.py) via `BaseRuntimeClient`.
 
 All business logic, test runners, and telemetry collectors interface strictly through these abstractions.
 
@@ -16,11 +16,11 @@ All business logic, test runners, and telemetry collectors interface strictly th
 
 ## 🔌 Adding a New Runtime Provider
 
-To support a new local inference server (e.g. **vLLM**, **SGLang**, **TensorRT-LLM**, or **LM Studio**), implement the `BaseRuntimeClient` interface in `core/client.py`:
+To support a new local inference server (e.g. **vLLM**, **SGLang**, **TensorRT-LLM**, or **LM Studio**), implement the `BaseRuntimeClient` interface in `benchrig/core/client.py`:
 
 ```python
 class BaseRuntimeClient:
-    """Interface for local LLM inference engines (see core/client.py)."""
+    """Interface for local LLM inference engines (see benchrig/core/client.py)."""
 
     name: str  # 'ollama' | 'foundry' | 'onnx-gpu'
     display_name: str  # shown in terminal output
@@ -56,7 +56,7 @@ On failure, return `self._failure_result(model, error, start_time)` so the recor
 
 ### Steps to Register a New Engine:
 1. Create your client class inheriting from `BaseRuntimeClient` in `core/` (e.g. `VLLMClient`).
-2. Register it in the runtime factory `create_runtime_client(runtime_name, config)` inside `core/client.py`.
+2. Register it in the runtime factory `create_runtime_client(runtime_name, config)` inside `benchrig/core/client.py`.
 3. Add configuration defaults to `config.yaml`.
 4. Add unit test coverage in `tests/`.
 
@@ -67,7 +67,7 @@ On failure, return `self._failure_result(model, error, start_time)` so the recor
 Tests run offline using mocks and simulated hardware responses: no network, GPU, or running daemon is required.
 
 ```bash
-pip install -r requirements-dev.txt   # pytest + ruff
+pip install -e ".[dev]"   # pytest + ruff
 
 pytest                                # run the full suite (configured in pyproject.toml)
 ruff check .                          # lint (E, W, F, I, B, UP)
@@ -84,18 +84,16 @@ The same three checks run in CI ([`.github/workflows/ci.yml`](../.github/workflo
 - [`tests/test_runner_suites.py`](../tests/test_runner_suites.py): Verifies the result-record schema of every suite and scorecard maths using a fake runtime client.
 - [`tests/test_sandbox.py`](../tests/test_sandbox.py): Covers partial passes, syntax errors, timeouts, and temp-file cleanup in the code sandbox.
 - [`tests/test_benchmark_cli.py`](../tests/test_benchmark_cli.py): Covers `--models` / `--pair` target resolution and suite registry consistency.
-- [`tests/test_packaging_sync.py`](../tests/test_packaging_sync.py): Fails if the standalone `packages/antigravity-local-coder/` code copies drift from the repo sources.
 
 ---
 
 ## 🛡 Sandbox Security Principles
 
-The code execution engine ([`core/sandbox.py`](../core/sandbox.py)) enforces strict isolation rules:
+The code execution engine ([`benchrig/core/sandbox.py`](../benchrig/core/sandbox.py)) enforces strict isolation rules:
 - **Subprocess Isolation**: Generated code runs in an isolated `subprocess.Popen` in its own session (dedicated process group).
 - **Process Group Termination**: If a model generates an infinite loop or blocks indefinitely, the entire process group is terminated using `os.killpg` after the timeout expires, so spawned grandchildren cannot outlive the test.
 - **No Global Namespace Pollution**: Code execution does not import or manipulate BenchRig's host process memory.
 - **Ephemeral Filesystem Cleanliness**: All harness temporary files are deleted immediately in `finally:` blocks.
-- **Packaged copies**: `packages/antigravity-local-coder/` mirrors `ollama_mcp_server.py` and `ask_local.py`; edit the repo source, then copy it over (enforced by `tests/test_packaging_sync.py`).
 
 ---
 

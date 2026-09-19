@@ -1,11 +1,11 @@
-"""Unit tests for token savings calculation and reporting in Ollama BenchRig."""
+"""Unit tests for token savings calculation and reporting in BenchRig."""
 
 import unittest
 from unittest.mock import MagicMock
 
-from core.runner import BenchmarkRunner
-from reporting.display import display_token_savings
-from reporting.markdown import generate_markdown_report
+from benchrig.core.runner import BenchmarkRunner
+from benchrig.reporting.display import display_token_savings
+from benchrig.reporting.markdown import generate_markdown_report
 
 
 class TestTokenSavings(unittest.TestCase):

@@ -52,7 +52,7 @@ def _bootstrap_cuda_env():
 
 def main():
     _bootstrap_cuda_env()
-    from core.onnx_client import OnnxGenAiClient
+    from benchrig.core.onnx_client import OnnxGenAiClient
 
     parser = argparse.ArgumentParser(description="Direct ONNX Runtime GenAI GPU Inference Runner")
     parser.add_argument(

@@ -1,13 +1,13 @@
 # 🖥 CLI Reference & Usage Manual
 
-This manual documents the command-line interface for **`benchmark.py`**, including runtime selection, model specification, test suite filters, and automation recipes.
+This manual documents the command-line interface for **`benchrig`**, including runtime selection, model specification, test suite filters, and automation recipes.
 
 ---
 
 ## 1. Synopsis
 
 ```bash
-python3 benchmark.py [OPTIONS]
+benchrig [OPTIONS]
 ```
 
 ---
@@ -25,6 +25,9 @@ python3 benchmark.py [OPTIONS]
 | **`--baseline`** | `path` | `None` | Path to a cached benchmark JSON run providing Ollama metrics so Ollama is never re-run. |
 | **`--compare`** | `path` | `None` | Path to historical benchmark JSON run to load, analyze, and render 1:1 report without running any LLMs. |
 | **`--pair`** | `string` | `None` | 1:1 model comparison pair ID from `config.yaml` (e.g. `phi_mini`, `phi4_mini`, `qwen_coder_7b`). |
+| **`--config`** | `path` | `None` | Config file. Lookup order: `--config`, `$BENCHRIG_CONFIG`, `./config.yaml`, then the bundled default. |
+| **`--scenarios-dir`** | `path` | `None` | Scenario JSON directory. Lookup order: `--scenarios-dir`, `./scenarios`, then the bundled scenarios. |
+| **`--version`** | `flag` | `false` | Prints the installed version and exits. |
 | **`--output-dir`** | `string` | `results` | Path to directory where run summaries (`LATEST_SUMMARY.md`) and raw JSON run data are persisted. |
 
 ---
@@ -34,19 +37,19 @@ python3 benchmark.py [OPTIONS]
 ### 1. Environment Readiness & Diagnostics
 Inspect GPU memory, platform drivers, and runtime availability:
 ```bash
-python3 benchmark.py --check
+benchrig --check
 ```
 
 ### 2. Fast Speed & Latency Benchmark
 Evaluate raw token throughput and Time-to-First-Token (TTFT) on Ollama models:
 ```bash
-python3 benchmark.py --runtime ollama --suite speed --runs 1
+benchrig --runtime ollama --suite speed --runs 1
 ```
 
 ### 3. Head-to-Head 1:1 Comparison Using Cached Baseline (Zero Redundancy)
 Evaluate Microsoft Foundry Local (or Direct ONNX GenAI) against a cached Ollama run without re-running Ollama:
 ```bash
-python3 benchmark.py \
+benchrig \
   --runtime foundry \
   --models foundry:phi-4-mini \
   --suite coding \
@@ -56,7 +59,7 @@ python3 benchmark.py \
 ### 4. Direct ONNX Runtime GenAI GPU Evaluation
 Evaluate HuggingFace ONNX INT4 AWQ models directly with native CUDA acceleration:
 ```bash
-python3 benchmark.py \
+benchrig \
   --runtime onnx-gpu \
   --models Phi-4-mini-instruct-cuda-gpu \
   --suite coding \
@@ -66,13 +69,13 @@ python3 benchmark.py \
 ### 5. Re-Rendering Reports & Scores Without Inference
 Re-display terminal leaderboards and re-generate `1TO1_COMPARISON_REPORT.md` instantly:
 ```bash
-python3 benchmark.py --compare results/latest.json
+benchrig --compare results/latest.json
 ```
 
 ### 6. Sandboxed Coding Precision Suite
 Run algorithmic coding challenges with automated unit test assertions in isolated subshells:
 ```bash
-python3 benchmark.py --runtime ollama \
+benchrig --runtime ollama \
   --models "qwen2.5-coder:7b" \
   --suite coding
 ```
@@ -80,14 +83,14 @@ python3 benchmark.py --runtime ollama \
 ### 7. Automated Setup of Recommended Models
 Pull standard benchmark models configured in `config.yaml`:
 ```bash
-python3 benchmark.py --runtime ollama --pull-recommended
+benchrig --runtime ollama --pull-recommended
 ```
 
 ---
 
 ## 4. Output Artifacts
 
-Upon completing an evaluation, `benchmark.py` generates:
+Upon completing an evaluation, `benchrig` generates:
 1. **Interactive Terminal Leaderboard**: Formatted using Rich with medals (🥇, 🥈, 🥉), composite rankings, VRAM status alerts, and cloud cost savings estimates.
 2. **`results/LATEST_SUMMARY.md`**: Markdown report detailing individual scenario assertion passes, TTFT, speed, and cross-engine comparison deltas.
 3. **`results/runs/benchmark_<timestamp>.json`**: Raw machine-readable telemetry and scores for CI/CD or historical trend analysis.

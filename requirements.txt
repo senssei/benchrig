@@ -1,5 +1,0 @@
-requests>=2.31.0
-rich>=13.7.0
-PyYAML>=6.0.1
-# Optional for visual charts:
-# matplotlib>=3.8.0

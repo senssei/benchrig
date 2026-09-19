@@ -5,15 +5,15 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from core.hardware import (
+from benchrig.core.hardware import (
     BaseHardwareProvider,
     DarwinAppleSiliconProvider,
     GenericCPUProvider,
     HardwareSampler,
     get_system_specs,
 )
-from reporting.display import display_leaderboard, display_system_banner
-from reporting.markdown import generate_markdown_report
+from benchrig.reporting.display import display_leaderboard, display_system_banner
+from benchrig.reporting.markdown import generate_markdown_report
 
 
 class TestHardwareProviders(unittest.TestCase):

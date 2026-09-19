@@ -5,16 +5,16 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from benchmark import resolve_target_models
-from core.client import (
+from benchrig.cli import resolve_target_models
+from benchrig.core.client import (
     BaseRuntimeClient,
     FoundryClient,
     OllamaClient,
     create_runtime_client,
 )
-from core.runner import BenchmarkRunner
-from reporting.display import display_leaderboard, display_scenario_result
-from reporting.markdown import generate_markdown_report
+from benchrig.core.runner import BenchmarkRunner
+from benchrig.reporting.display import display_leaderboard, display_scenario_result
+from benchrig.reporting.markdown import generate_markdown_report
 
 
 class TestFoundryClient(unittest.TestCase):
@@ -79,6 +79,64 @@ class TestFoundryClient(unittest.TestCase):
         self.assertEqual(models[0]["runtime"], "foundry")
         self.assertEqual(models[0]["details"]["engine"], "ONNX Runtime GenAI")
         self.assertEqual(models[1]["name"], "qwen2.5-coder-7b")
+
+    @patch("requests.get")
+    def test_engine_follows_owned_by_reported_by_server(self, mock_get):
+        """A multi-engine server (Prism) labels each model; the class-level default must not override it."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "phi-4-cuda", "owned_by": "ONNX Runtime GenAI"},
+                {"id": "ollama:qwen2.5-coder:3b", "owned_by": "llama.cpp"},
+                {"id": "plain"},
+            ]
+        }
+        mock_get.return_value = mock_resp
+
+        engines = {m["name"]: m["details"]["engine"] for m in self.client.list_installed_models()}
+        self.assertEqual(
+            engines,
+            {"phi-4-cuda": "ONNX Runtime GenAI", "ollama:qwen2.5-coder:3b": "llama.cpp", "plain": "ONNX Runtime GenAI"},
+        )
+
+    def test_engine_inferred_from_ollama_prefix_before_any_listing(self):
+        self.assertEqual(self.client._engine_for("ollama:phi3:mini"), "llama.cpp")
+        self.assertEqual(self.client._engine_for("phi-4"), "ONNX Runtime GenAI")
+
+    @patch("requests.post")
+    def test_generate_reports_engine_of_the_served_model(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            b'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+            b"data: [DONE]",
+        ]
+        mock_post.return_value = mock_resp
+        result = self.client.generate("ollama:qwen2.5-coder:3b", "hi")
+        self.assertEqual(result["engine"], "llama.cpp")
+
+    @patch("benchrig.core.client.subprocess.run")
+    @patch("requests.get")
+    def test_explicit_endpoint_load_model_checks_listing_and_skips_foundry_cli(self, mock_get, mock_run):
+        """With auto_detect_port off the server is not the Foundry daemon: never shell out to `foundry`."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"data": [{"id": "phi-4"}]}
+        mock_get.return_value = mock_resp
+
+        self.assertTrue(self.client.load_model("phi-4"))
+        self.assertFalse(self.client.load_model("missing"))
+        self.assertTrue(self.client.unload_model("phi-4"))
+        mock_run.assert_not_called()
+
+    @patch.object(FoundryClient, "_run_model_command", return_value=True)
+    def test_discovered_daemon_still_uses_foundry_cli(self, mock_cmd):
+        self.client._endpoint_resolved = True
+        self.assertTrue(self.client.load_model("phi-4"))
+        self.client.unload_model("phi-4")
+        self.assertEqual([c.args[0] for c in mock_cmd.call_args_list], ["load", "unload"])
 
     @patch("requests.post")
     def test_generate_streaming_success(self, mock_post):
@@ -375,8 +433,8 @@ class TestCrossRuntimeReporting(unittest.TestCase):
 
     def test_1to1_comparison_report_generation(self):
         """Verify generate_1to1_comparison_report produces head-to-head analysis."""
-        from reporting.display import display_1to1_comparison
-        from reporting.markdown import generate_1to1_comparison_report
+        from benchrig.reporting.display import display_1to1_comparison
+        from benchrig.reporting.markdown import generate_1to1_comparison_report
 
         sc_a = {
             "model": "phi3:mini",

@@ -1,25 +1,25 @@
 # 🏗 System Architecture & Engine Design
 
-This document details the internal architecture, design principles, and abstraction layers powering **Ollama BenchRig**.
+This document details the internal architecture, design principles, and abstraction layers powering **BenchRig**.
 
 ---
 
 ## 1. High-Level Architecture
 
-Ollama BenchRig is designed around a modular, decoupled architecture where runtime backends, hardware profilers, test scenarios, and reporting sinks operate behind strict abstract interfaces:
+BenchRig is designed around a modular, decoupled architecture where runtime backends, hardware profilers, test scenarios, and reporting sinks operate behind strict abstract interfaces:
 
 ```mermaid
 flowchart TD
-    CLI["CLI Layer\n(benchmark.py)"] --> Runner["BenchmarkRunner Engine\n(core/runner.py)"]
+    CLI["CLI Layer\n(benchrig/cli.py)"] --> Runner["BenchmarkRunner Engine\n(benchrig/core/runner.py)"]
     
     subgraph HardwareAbstraction ["Hardware Abstraction Layer (HAL)"]
-        Runner --> HAL["HardwareProvider Factory\n(core/hardware.py)"]
+        Runner --> HAL["HardwareProvider Factory\n(benchrig/core/hardware.py)"]
         HAL --> Darwin["DarwinAppleSiliconProvider\n(Metal 3, sysctl, vm_stat, ioreg)"]
         HAL --> Linux["LinuxNvidiaProvider\n(CUDA, nvidia-smi, /proc/meminfo)"]
     end
 
     subgraph RuntimeAbstraction ["Runtime Abstraction Layer (RAL)"]
-        Runner --> RAL["BaseRuntimeClient Protocol\n(core/client.py)"]
+        Runner --> RAL["BaseRuntimeClient Protocol\n(benchrig/core/client.py)"]
         RAL --> Ollama["OllamaClient\n(llama.cpp native REST API)"]
         RAL --> Foundry["FoundryClient\n(ONNX Runtime GenAI OpenAI API)"]
         RAL --> OnnxGPU["OnnxGenAiClient\n(Direct Python ONNX GenAI CUDA)"]
@@ -27,15 +27,15 @@ flowchart TD
 
     subgraph EvaluationPipelines ["Scenario Evaluation Pipelines"]
         Runner --> Speed["Speed & Latency\n(Streaming TTFT Probes)"]
-        Runner --> Coding["Coding Suite\n(core/sandbox.py Subprocess Harness)"]
-        Runner --> Reasoning["Reasoning Suite\n(core/reasoning_parser.py)"]
+        Runner --> Coding["Coding Suite\n(benchrig/core/sandbox.py Subprocess Harness)"]
+        Runner --> Reasoning["Reasoning Suite\n(benchrig/core/reasoning_parser.py)"]
         Runner --> Context["Context Saturation\n(512 - 8192 window sweep)"]
         Runner --> Polish["Polish NLP Suite\n(Linguistic verification)"]
     end
 
-    subgraph OutputSinks ["Reporting & Sinks (reporting/)"]
-        Runner --> Rich["Rich Terminal Display\n(reporting/display.py)"]
-        Runner --> Markdown["Markdown Generator\n(reporting/markdown.py)"]
+    subgraph OutputSinks ["Reporting & Sinks (benchrig/reporting/)"]
+        Runner --> Rich["Rich Terminal Display\n(benchrig/reporting/display.py)"]
+        Runner --> Markdown["Markdown Generator\n(benchrig/reporting/markdown.py)"]
         Runner --> Storage["JSON Run Storage\n(results/runs/*.json)"]
     end
 ```
@@ -45,7 +45,7 @@ flowchart TD
 ## 2. Core Abstraction Layers
 
 ### A. Runtime Abstraction Layer (`BaseRuntimeClient`)
-Located in [`core/client.py`](../core/client.py) and [`core/onnx_client.py`](../core/onnx_client.py), this base class decouples test execution from the underlying inference engine:
+Located in [`benchrig/core/client.py`](../benchrig/core/client.py) and [`benchrig/core/onnx_client.py`](../benchrig/core/onnx_client.py), this base class decouples test execution from the underlying inference engine:
 
 ```python
 class BaseRuntimeClient:  # required methods raise NotImplementedError; load/unload/pull have safe defaults
@@ -83,7 +83,7 @@ class BaseRuntimeClient:  # required methods raise NotImplementedError; load/unl
 ---
 
 ### B. Hardware Abstraction Layer (`HardwareProvider`)
-Located in [`core/hardware.py`](../core/hardware.py), this layer measures real-time physical resource saturation during model evaluation without requiring root or elevated privileges:
+Located in [`benchrig/core/hardware.py`](../benchrig/core/hardware.py), this layer measures real-time physical resource saturation during model evaluation without requiring root or elevated privileges:
 
 1. **`DarwinAppleSiliconProvider`**:
    - Total & Available Unified Memory (UMA) via `sysctl -n hw.memsize` and `vm_stat`.
@@ -95,7 +95,7 @@ Located in [`core/hardware.py`](../core/hardware.py), this layer measures real-t
 
 ---
 
-### C. Sandboxed Execution Engine (`core/sandbox.py`)
+### C. Sandboxed Execution Engine (`benchrig/core/sandbox.py`)
 To prevent LLM hallucination from invalidating coding benchmarks, the sandbox:
 1. Strips markdown backticks, conversational preambles, and conversational suffixes via AST regex heuristics.
 2. Synthesizes a self-contained Python test script combining the model's implementation with strict unit test assertions.
@@ -107,6 +107,6 @@ To prevent LLM hallucination from invalidating coding benchmarks, the sandbox:
 ## 3. Configuration Hierarchy
 
 The system loads settings hierarchically:
-1. **Defaults**: Hardcoded safe fallbacks in `core/config.py`.
-2. **Configuration File**: [`config.yaml`](../config.yaml) in the workspace root specifying endpoints, default models, timeouts, and thresholds.
-3. **CLI Arguments**: Runtime flags passed to [`benchmark.py`](../benchmark.py) override file configuration dynamically.
+1. **Defaults**: Hardcoded safe fallbacks in `benchrig/core/config.py`.
+2. **Configuration File**: [`config.yaml`](../benchrig/data/config.yaml) in the workspace root specifying endpoints, default models, timeouts, and thresholds.
+3. **CLI Arguments**: Runtime flags passed to [`benchrig`](../benchrig/cli.py) override file configuration dynamically.

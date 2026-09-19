@@ -168,13 +168,13 @@ To redirect a CPU-targeted ONNX model onto CUDA cores:
 
 ```bash
 # Environment & runtime diagnostics across installed models
-python3 benchmark.py --check
+benchrig --check
 
 # Run 1:1 speed comparison
-python3 benchmark.py --runtime all --models "ollama:phi3:mini,foundry:Phi-3.5-mini-instruct-generic-cpu" --suite speed
+benchrig --runtime all --models "ollama:phi3:mini,foundry:Phi-3.5-mini-instruct-generic-cpu" --suite speed
 
 # Run automated coding sandbox evaluation
-python3 benchmark.py --runtime all --models "ollama:phi3:mini,foundry:Phi-3.5-mini-instruct-generic-cpu" --suite coding
+benchrig --runtime all --models "ollama:phi3:mini,foundry:Phi-3.5-mini-instruct-generic-cpu" --suite coding
 
 # Foundry Local Service Management
 foundry server status     # Inspect service health, PID, and active dynamic port
@@ -203,7 +203,7 @@ Because the Microsoft Foundry CLI preview on Linux artificially restricts execut
   --prompt "Write a python function to compute the nth Fibonacci number efficiently."
 
 # Run 1:1 cross-engine benchmark against cached Ollama baseline:
-.venv/bin/python3 benchmark.py \
+benchrig \
   --runtime onnx-gpu \
   --models Phi-4-mini-instruct-cuda-gpu \
   --suite coding \
@@ -279,7 +279,7 @@ nvidia-smi
 ```
 
 ### Verified Option 2 Benchmark Results (NVIDIA GeForce RTX 5070 WSL2)
-Measured via `benchmark.py --runtime foundry --models foundry:phi-4-mini --suite coding --baseline <ollama_run>.json`:
+Measured via `benchrig --runtime foundry --models foundry:phi-4-mini --suite coding --baseline <ollama_run>.json`:
 
 | Evaluation Metric | Ollama (`phi3:mini`) [llama.cpp CUDA] | MS Foundry Native Daemon (`phi-4-mini`) [ONNX GenAI CUDA] | Delta / Advantage |
 |:---|:---:|:---:|:---:|

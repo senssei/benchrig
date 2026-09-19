@@ -1,6 +1,6 @@
 # 🚀 Tutorial 1: Quickstart Guide (Zero to Benchmark in 5 Minutes)
 
-This tutorial walks you through setting up **Ollama BenchRig**, validating your platform hardware acceleration (macOS Apple Silicon Metal or Linux/WSL2 NVIDIA CUDA), and executing your first local LLM benchmark.
+This tutorial walks you through setting up **BenchRig**, validating your platform hardware acceleration (macOS Apple Silicon Metal or Linux/WSL2 NVIDIA CUDA), and executing your first local LLM benchmark.
 
 ---
 
@@ -30,8 +30,8 @@ Clone the repository and install dependencies in an isolated virtual environment
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/ollama-benchrig.git
-cd ollama-benchrig
+git clone https://github.com/senssei/benchrig.git
+cd benchrig
 
 # 2. Create and activate virtual environment
 python3 -m venv .venv
@@ -39,7 +39,7 @@ source .venv/bin/activate
 
 # 3. Install core dependencies
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ---
@@ -49,7 +49,7 @@ pip install -r requirements.txt
 Execute the non-destructive diagnostic check to verify accelerator detection and daemon reachability:
 
 ```bash
-python3 benchmark.py --check
+benchrig --check
 ```
 
 ### Expected Output:
@@ -65,7 +65,7 @@ Pull the standard benchmark models configured in `config.yaml`:
 
 ```bash
 # Pull standard Ollama coding & reasoning models:
-python3 benchmark.py --runtime ollama --pull-recommended
+benchrig --runtime ollama --pull-recommended
 ```
 
 Or manually pull your preferred model:
@@ -82,14 +82,14 @@ ollama pull phi3:mini
 Evaluate raw token throughput (tokens/s) and Time to First Token (TTFT):
 
 ```bash
-python3 benchmark.py --runtime ollama --models qwen2.5-coder:7b --suite speed
+benchrig --runtime ollama --models qwen2.5-coder:7b --suite speed
 ```
 
 ### 2. Sandboxed Automated Coding Precision Test
 Evaluate real-world code generation precision against deterministic unit test assertions in isolated subshells:
 
 ```bash
-python3 benchmark.py --runtime ollama --models qwen2.5-coder:7b --suite coding
+benchrig --runtime ollama --models qwen2.5-coder:7b --suite coding
 ```
 
 During execution, BenchRig:
@@ -109,7 +109,7 @@ Upon completion, BenchRig generates:
 
 To display the latest run results in the terminal at any time:
 ```bash
-python3 benchmark.py --compare results/latest.json
+benchrig --compare results/latest.json
 ```
 
 ---
@@ -117,4 +117,4 @@ python3 benchmark.py --compare results/latest.json
 ## 🎯 Next Steps
 - Learn how to enable GPU acceleration in Microsoft Foundry Local: [Tutorial 2: Foundry GPU Setup](02_FOUNDRY_GPU_SETUP.md).
 - Run side-by-side cross-engine comparisons: [Tutorial 3: Cross-Engine Benchmarking](03_CROSS_ENGINE_BENCHMARKING.md).
-- Offload agent coding routines with zero token cost: [Tutorial 4: Agent Integration & MCP](04_AGENT_INTEGRATION_MCP.md).
+- Offload agent coding routines with zero token cost: see [local-coders](https://github.com/senssei/local-coders).

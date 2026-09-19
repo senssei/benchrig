@@ -1,16 +1,16 @@
 # ⚙️ Configuration Reference Guide
 
-This document provides a comprehensive reference for configuring **Ollama BenchRig** via [`config.yaml`](../config.yaml) and environment variables.
+This document provides a comprehensive reference for configuring **BenchRig** via [`config.yaml`](../benchrig/data/config.yaml) and environment variables.
 
 ---
 
 ## 📋 Configuration File Overview (`config.yaml`)
 
-Ollama BenchRig uses a centralized YAML configuration file to control runtime connectivity, timeout thresholds, benchmark execution defaults, hardware telemetry sampling, and composite scoring formulas.
+BenchRig uses a centralized YAML configuration file to control runtime connectivity, timeout thresholds, benchmark execution defaults, hardware telemetry sampling, and composite scoring formulas.
 
 ```yaml
 # ==============================================================================
-# Ollama BenchRig - Global Runtime & Benchmark Configuration
+# BenchRig - Global Runtime & Benchmark Configuration
 # ==============================================================================
 
 ollama:

@@ -1,6 +1,6 @@
 # 🧪 Benchmark Suites & Evaluation Methodology
 
-This document details the design, scenarios, scoring formulas, and validation methodologies employed by the 5 specialized benchmark suites in **Ollama BenchRig**.
+This document details the design, scenarios, scoring formulas, and validation methodologies employed by the 5 specialized benchmark suites in **BenchRig**.
 
 ---
 
@@ -27,8 +27,8 @@ The speed suite evaluates inference latency, maximum decoder velocity, and promp
 
 The coding suite measures whether an LLM produces syntactically valid and deterministically functional Python code without human intervention.
 
-### Isolated Subprocess Sandbox (`core/sandbox.py`)
-Rather than relying on lexical matching (e.g. BLEU/ROUGE), Ollama BenchRig executes the model's generated code inside an **isolated Python sandbox**:
+### Isolated Subprocess Sandbox (`benchrig/core/sandbox.py`)
+Rather than relying on lexical matching (e.g. BLEU/ROUGE), BenchRig executes the model's generated code inside an **isolated Python sandbox**:
 1. Strips conversational prose, backticks (` ```python `), and trailing explanations.
 2. Appends an automated test harness with strict `assert` statements covering edge cases.
 3. Spawns an isolated `subprocess.run` with a strict 10-second timeout.
@@ -50,7 +50,7 @@ Rather than relying on lexical matching (e.g. BLEU/ROUGE), Ollama BenchRig execu
 Designed to test models that generate reasoning chains (such as DeepSeek-R1 or Qwen 2.5 with reasoning prompts).
 
 ### Methodology
-* **`<think>` Parsing**: The parser in [`core/reasoning_parser.py`](../core/reasoning_parser.py) inspects whether the model separates internal reasoning (`<think>...</think>`) from the final response.
+* **`<think>` Parsing**: The parser in [`benchrig/core/reasoning_parser.py`](../benchrig/core/reasoning_parser.py) inspects whether the model separates internal reasoning (`<think>...</think>`) from the final response.
 * **Token Budget Telemetry**: Tracks the proportion of tokens spent on internal exploration vs the final delivered answer.
 * **Deterministic Verification**: Extracts the final answer and checks exact equality against ground-truth mathematical and logical solutions.
 

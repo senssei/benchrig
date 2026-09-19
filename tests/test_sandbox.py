@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 
-from core.sandbox import extract_python_code, run_code_with_tests
+from benchrig.core.sandbox import extract_python_code, run_code_with_tests
 
 
 class ExtractCodeTests(unittest.TestCase):

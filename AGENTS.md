@@ -1,62 +1,8 @@
 # Project Guidelines and Agent Instructions (`AGENTS.md`)
 
-This repository (**Ollama BenchRig** / `ollama-benchrig`) profiles, benchmarks, and augments AI coding agents using local LLMs running via **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (`ONNX Runtime GenAI`) on **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
+This repository (**BenchRig**, PyPI package `benchrig`) profiles and benchmarks local LLMs running via **Ollama** (`llama.cpp`), **Microsoft Foundry Local** (`ONNX Runtime GenAI`) and direct **ONNX Runtime GenAI** on **macOS Apple Silicon (Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
 
----
-
-## 🚀 Core Guideline: Utilizing Local Inference Skills
-
-All agents and subagents working in this repository are encouraged to leverage the dedicated local coding skills to offload implementation tasks with zero cloud token cost:
-1. **`ollama-coder`**: Ollama backend (`qwen2.5-coder:7b`, `llama3.1:8b`).
-2. **`foundry-coder`**: Microsoft Foundry Local backend (`phi-3.5-mini`, `qwen3-0.6b`).
-
-### When to use local coder skills:
-1. **Code & boilerplate generation (`code`)**: implementing functions, algorithms, classes, modules, and utilities.
-2. **Unit test authoring (`test`)**: generating comprehensive test suites (`pytest`, `unittest`) with edge cases and mock fixtures.
-3. **Architecture & security audits (`review`)**: auditing code for race conditions, vulnerabilities, and bottlenecks using reasoning models.
-4. **Refactoring & type hinting (`refactor`)**: upgrading code with strict type annotations (`typing`), PEP 257 docstrings, and clean design.
-5. **Cloud token conservation & privacy**: offloading heavy coding routines to local hardware accelerators with zero token cost.
-
----
-
-## 🛠 Invoking the Skills
-
-### 1. Ollama Coder (`ollama-coder`)
-```bash
-# Code generation with self-healing:
-python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
-  --task "Implement a thread-safe sliding window rate limiter" \
-  --output src/rate_limiter.py
-
-# Automated unit test authoring:
-python3 .agents/skills/ollama-coder/scripts/ask_local.py test \
-  --file src/rate_limiter.py \
-  --framework pytest \
-  --output tests/test_rate_limiter.py
-
-# Architecture & security review:
-python3 .agents/skills/ollama-coder/scripts/ask_local.py review \
-  --file src/server.py \
-  --focus "race conditions, unhandled exceptions, and memory leaks"
-
-# Refactoring with type hints and docstrings:
-python3 .agents/skills/ollama-coder/scripts/ask_local.py refactor \
-  --file src/legacy_util.py \
-  --type-hints \
-  --docstrings \
-  --output src/legacy_util_typed.py
-```
-
-### 2. Foundry Coder (`foundry-coder`)
-```bash
-# Code generation via Foundry Local:
-python3 .agents/skills/foundry-coder/scripts/ask_foundry.py code \
-  --task "Implement a thread-safe LRU cache with TTL expiration" \
-  --output src/cache.py
-
-# Check daemon connectivity and loaded models:
-python3 .agents/skills/foundry-coder/scripts/ask_foundry.py status
-```
+> The `ollama-coder` / `foundry-coder` agent skills and the MCP servers were moved to [senssei/local-coders](https://github.com/senssei/local-coders).
 
 ---
 
@@ -80,8 +26,8 @@ systemctl --user status ollama || sudo systemctl status ollama
 
 #### B. Microsoft Foundry Local Daemon
 ```bash
-# 1. Quick diagnostic via skill:
-python3 .agents/skills/foundry-coder/scripts/ask_foundry.py status
+# 1. Quick diagnostic via benchrig:
+benchrig --check
 
 # 2. Native CLI status check:
 foundry server status
@@ -140,25 +86,11 @@ When troubleshooting Foundry Local or ONNX Runtime errors:
 In Microsoft Foundry Local, models must be loaded into memory before `/v1/chat/completions` responds:
 * **Error**: `Failed to handle OpenAI completion: Model '...' is not loaded.`
 * **Fix**: Run `foundry model load <model_alias>` (e.g. `foundry model load phi-3.5-mini`).
-* **Note**: Both `foundry_mcp_server.py` and `ask_foundry.py` automatically catch this error and trigger auto-loading.
+* **Note**: `benchrig` catches this error and triggers auto-loading (`FoundryClient.generate`).
 
-### 5. Debugging AST Self-Healing Loops
-* If an agent runs `ask_local.py` or `ask_foundry.py` and sees:
-  `[Self-Healing] Syntax error detected...`
-  The tool feeds the Python traceback back into the local model to self-correct up to 2 times.
-* If generating non-Python output (e.g., Dockerfiles, shell scripts, Markdown, YAML), **always supply `--no-heal`** to prevent the AST compiler from rejecting valid non-Python code.
-
-### 6. Mandatory Verification Gate
+### 5. Mandatory Verification Gate
 Prior to concluding any modification or refactoring task, execute the complete unit test suite:
 ```bash
-ruff check . && ruff format --check . && python3 -m pytest
+ruff check . && ruff format --check . && python3 -m pytest && python3 -m build
 ```
-Ensure lint is clean and every test passes before finalizing (install tooling once with `pip install -r requirements-dev.txt`).
-
----
-
-## 📦 Global Installation & Standalone Distribution
-
-- **Ollama Coder**: Run `./install_global_skill.sh` to install `ollama-coder` into `~/.gemini/config/skills/ollama-coder` and register `ollama-local` globally.
-- **Foundry Coder**: Run `./install_foundry_skill.sh` to install `foundry-coder` into `~/.gemini/config/skills/foundry-coder` and register `foundry-local` globally.
-- **Standalone Package**: Located in [`packages/antigravity-local-coder/`](packages/antigravity-local-coder/) for independent publishing.
+Ensure lint is clean and every test passes before finalizing (install tooling once with `pip install -e ".[dev]"`).

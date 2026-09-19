@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-import benchmark
+from benchrig import cli as benchmark
 
 
 def fake_client(installed, reachable=True):
@@ -86,11 +86,28 @@ class ParserTests(unittest.TestCase):
     def test_every_suite_has_a_runner_method_and_scenario_file(self):
         import os
 
-        from core.runner import BenchmarkRunner
+        from benchrig.core.runner import BenchmarkRunner
 
         for filename, method, _ in benchmark.SUITES.values():
             self.assertTrue(hasattr(BenchmarkRunner, method), method)
-            self.assertTrue(os.path.exists(os.path.join(benchmark.SCENARIOS_DIR, filename)), filename)
+            self.assertTrue(os.path.exists(os.path.join(benchmark.resolve_scenarios_dir(), filename)), filename)
+
+
+class PullRecommendedModelsTests(unittest.TestCase):
+    def test_onnx_gpu_handles_gracefully(self):
+        clients = {
+            "onnx-gpu": fake_client(["Phi-4-mini-instruct-cuda-gpu"], reachable=True),
+        }
+        config = {"recommended_models": {}}
+        # Should execute without raising any exception
+        benchmark.pull_recommended_models(clients, config, target_runtime="onnx-gpu")
+
+    def test_empty_recommended_handles_gracefully(self):
+        clients = {
+            "ollama": fake_client([], reachable=True),
+        }
+        config = {"recommended_models": {}}
+        benchmark.pull_recommended_models(clients, config, target_runtime="ollama")
 
 
 if __name__ == "__main__":

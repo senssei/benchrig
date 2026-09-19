@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from core.client import create_runtime_client
-from core.onnx_client import OnnxGenAiClient
+from benchrig.core.client import create_runtime_client
+from benchrig.core.onnx_client import OnnxGenAiClient
 
 
 class TestOnnxGenAiClient(unittest.TestCase):
@@ -26,8 +26,8 @@ class TestOnnxGenAiClient(unittest.TestCase):
         self.assertEqual(self.client.models_dir, os.path.abspath(self.temp_dir.name))
         self.assertEqual(self.client.timeout_sec, 300)
 
-    @patch("core.onnx_client.OG_AVAILABLE", True)
-    @patch("core.onnx_client.og")
+    @patch("benchrig.core.onnx_client.OG_AVAILABLE", True)
+    @patch("benchrig.core.onnx_client.og")
     def test_version_and_cuda_status(self, mock_og):
         """Verify get_version reflects library version and CUDA availability."""
         mock_og.__version__ = "0.16.0"
@@ -71,8 +71,8 @@ class TestOnnxGenAiClient(unittest.TestCase):
         self.assertEqual(resolved, os.path.abspath(model_subdir))
         self.assertIsNone(self.client._resolve_model_path("non-existent-model"))
 
-    @patch("core.onnx_client.OG_AVAILABLE", True)
-    @patch("core.onnx_client.og")
+    @patch("benchrig.core.onnx_client.OG_AVAILABLE", True)
+    @patch("benchrig.core.onnx_client.og")
     def test_generate_mock(self, mock_og):
         """Test generation workflow and metric computation with mocked ONNX runtime."""
         # Create dummy model folder
