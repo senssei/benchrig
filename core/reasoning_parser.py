@@ -1,10 +1,10 @@
 """Reasoning and logic evaluator with <think> tag extraction (DeepSeek-R1 support)."""
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def extract_thinking_and_answer(text: str) -> Dict[str, str]:
+def extract_thinking_and_answer(text: str) -> dict[str, str]:
     """
     Extract thinking trace and final answer.
     Supports <think>...</think> tags used by DeepSeek-R1 and similar reasoning models.
@@ -30,11 +30,11 @@ def evaluate_reasoning_answer(
     response_text: str,
     expected_answer: str,
     check_type: str = "exact_or_contains",
-    accepted_patterns: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    accepted_patterns: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Evaluate if reasoning response arrived at the correct conclusion.
-    
+
     check_type:
     - "exact_or_contains": answer contains expected string
     - "numeric": extracts number (or boxed number) and compares mathematically
@@ -63,7 +63,7 @@ def evaluate_reasoning_answer(
             if act_num is not None and abs(act_num - exp_num) < 1e-4:
                 correct = True
         except ValueError:
-            correct = (extracted_val == expected_answer.strip())
+            correct = extracted_val == expected_answer.strip()
 
     elif check_type == "regex" and accepted_patterns:
         for pat in accepted_patterns:

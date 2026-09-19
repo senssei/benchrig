@@ -8,12 +8,13 @@ import gc
 import json
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from core.client import BaseRuntimeClient
 
 try:
     import onnxruntime_genai as og
+
     OG_AVAILABLE = True
 except ImportError:
     og = None
@@ -32,7 +33,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
 
     def __init__(
         self,
-        models_dir: Optional[str] = None,
+        models_dir: str | None = None,
         timeout_sec: int = 300,
         default_max_tokens: int = 4096,
         include_foundry_cache: bool = False,
@@ -43,7 +44,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
         self.include_foundry_cache = include_foundry_cache
         self._loaded_model = None
         self._loaded_tokenizer = None
-        self._loaded_model_name: Optional[str] = None
+        self._loaded_model_name: str | None = None
 
     def is_reachable(self) -> bool:
         """Check if onnxruntime_genai library is available and operational."""
@@ -65,7 +66,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
         cuda_status = "CUDA" if self.is_cuda_available() else "CPU"
         return f"{getattr(og, '__version__', 'unknown')} ({cuda_status})"
 
-    def _resolve_model_path(self, model_name: str) -> Optional[str]:
+    def _resolve_model_path(self, model_name: str) -> str | None:
         """Resolve model name or directory path to the folder containing genai_config.json."""
         candidates = [
             model_name,
@@ -86,7 +87,9 @@ class OnnxGenAiClient(BaseRuntimeClient):
             if os.path.isdir(foundry_dir):
                 for entry in os.listdir(foundry_dir):
                     full = os.path.join(foundry_dir, entry)
-                    if os.path.isdir(full) and (model_name.lower() in entry.lower() or entry.lower() in model_name.lower()):
+                    if os.path.isdir(full) and (
+                        model_name.lower() in entry.lower() or entry.lower() in model_name.lower()
+                    ):
                         candidates.append(full)
                         # Check v1, v2, v5 subdirectories
                         for sub in os.listdir(full):
@@ -102,7 +105,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
 
         return None
 
-    def list_installed_models(self) -> List[Dict[str, Any]]:
+    def list_installed_models(self) -> list[dict[str, Any]]:
         """List local ONNX models containing genai_config.json."""
         installed = []
         search_dirs = [self.models_dir]
@@ -135,7 +138,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
                     # Read genai_config for model info
                     family = "onnx"
                     try:
-                        with open(os.path.join(abs_root, "genai_config.json"), "r", encoding="utf-8") as f:
+                        with open(os.path.join(abs_root, "genai_config.json"), encoding="utf-8") as f:
                             cfg = json.load(f)
                             family = cfg.get("model", {}).get("type", "onnx")
                     except Exception:
@@ -144,18 +147,20 @@ class OnnxGenAiClient(BaseRuntimeClient):
                     quant = "INT4" if "int4" in model_name.lower() else "ONNX"
                     cuda_tag = "CUDA" if ("cuda" in model_name.lower() or "gpu" in model_name.lower()) else "CPU/GPU"
 
-                    installed.append({
-                        "name": model_name,
-                        "model": model_name,
-                        "path": abs_root,
-                        "size": total_bytes,
-                        "runtime": self.name,
-                        "details": {
-                            "family": family,
-                            "parameter_size": "N/A",
-                            "quantization_level": f"{quant} ({cuda_tag})",
-                        },
-                    })
+                    installed.append(
+                        {
+                            "name": model_name,
+                            "model": model_name,
+                            "path": abs_root,
+                            "size": total_bytes,
+                            "runtime": self.name,
+                            "details": {
+                                "family": family,
+                                "parameter_size": "N/A",
+                                "quantization_level": f"{quant} ({cuda_tag})",
+                            },
+                        }
+                    )
 
         return installed
 
@@ -206,13 +211,13 @@ class OnnxGenAiClient(BaseRuntimeClient):
         gc.collect()
         return True
 
-    def get_running_models(self) -> List[Dict[str, Any]]:
+    def get_running_models(self) -> list[dict[str, Any]]:
         """Return currently loaded model info."""
         if self._loaded_model is not None and self._loaded_model_name:
             return [{"name": self._loaded_model_name, "model": self._loaded_model_name}]
         return []
 
-    def _format_prompt(self, prompt: str, system: Optional[str] = None) -> str:
+    def _format_prompt(self, prompt: str, system: str | None = None) -> str:
         """Format prompt using standard instruction markers."""
         if system:
             return f"<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>\n"
@@ -222,10 +227,10 @@ class OnnxGenAiClient(BaseRuntimeClient):
         self,
         model: str,
         prompt: str,
-        system: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
+        system: str | None = None,
+        options: dict[str, Any] | None = None,
         measure_ttft: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute text generation using onnxruntime_genai with precision telemetry."""
         if not OG_AVAILABLE or og is None:
             return {
@@ -288,8 +293,8 @@ class OnnxGenAiClient(BaseRuntimeClient):
             generator = og.Generator(self._loaded_model, params)
             generator.append_tokens(tokens)
 
-            first_token_time: Optional[float] = None
-            out_tokens: List[int] = []
+            first_token_time: float | None = None
+            out_tokens: list[int] = []
 
             gen_start_time = time.perf_counter()
 
@@ -306,10 +311,18 @@ class OnnxGenAiClient(BaseRuntimeClient):
 
             eval_count = len(out_tokens)
             ttft_sec = (first_token_time - gen_start_time) if first_token_time else (end_wall_time - gen_start_time)
-            decode_dur_sec = (end_wall_time - first_token_time) if (first_token_time and eval_count > 1) else (end_wall_time - gen_start_time)
+            decode_dur_sec = (
+                (end_wall_time - first_token_time)
+                if (first_token_time and eval_count > 1)
+                else (end_wall_time - gen_start_time)
+            )
             total_time_sec = end_wall_time - start_wall_time
 
-            eval_tok_sec = (eval_count - 1) / decode_dur_sec if (decode_dur_sec > 0 and eval_count > 1) else (eval_count / total_time_sec if total_time_sec > 0 else 0.0)
+            eval_tok_sec = (
+                (eval_count - 1) / decode_dur_sec
+                if (decode_dur_sec > 0 and eval_count > 1)
+                else (eval_count / total_time_sec if total_time_sec > 0 else 0.0)
+            )
             prompt_tok_sec = prompt_eval_count / ttft_sec if ttft_sec > 0 else 0.0
 
             return {

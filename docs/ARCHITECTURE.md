@@ -45,35 +45,34 @@ flowchart TD
 ## 2. Core Abstraction Layers
 
 ### A. Runtime Abstraction Layer (`BaseRuntimeClient`)
-Located in [`core/client.py`](../core/client.py) and [`core/onnx_client.py`](../core/onnx_client.py), this abstract protocol decouples test execution from the underlying inference engine:
+Located in [`core/client.py`](../core/client.py) and [`core/onnx_client.py`](../core/onnx_client.py), this base class decouples test execution from the underlying inference engine:
 
 ```python
-class BaseRuntimeClient(ABC):
-    name: str              # 'ollama' | 'foundry' | 'onnx-gpu'
-    engine_name: str       # 'llama.cpp' | 'ONNX Runtime GenAI'
+class BaseRuntimeClient:  # required methods raise NotImplementedError; load/unload/pull have safe defaults
+    name: str  # 'ollama' | 'foundry' | 'onnx-gpu'
+    engine_name: str  # 'llama.cpp' | 'ONNX Runtime GenAI'
     base_url: str
 
-    @abstractmethod
     def is_reachable(self) -> bool: ...
 
-    @abstractmethod
     def get_version(self) -> str: ...
 
-    @abstractmethod
     def list_installed_models(self) -> List[Dict[str, Any]]: ...
 
-    @abstractmethod
     def load_model(self, model: str) -> bool: ...
 
-    @abstractmethod
     def unload_model(self, model: str) -> bool: ...
 
-    @abstractmethod
     def pull_model(self, model: str) -> bool: ...
 
-    @abstractmethod
-    def generate(self, model: str, prompt: str, system: Optional[str] = None,
-                 options: Optional[Dict[str, Any]] = None, measure_ttft: bool = True) -> Dict[str, Any]: ...
+    def generate(
+        self,
+        model: str,
+        prompt: str,
+        system: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        measure_ttft: bool = True,
+    ) -> Dict[str, Any]: ...
 ```
 
 #### Key Implementation Details:

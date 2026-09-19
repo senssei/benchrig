@@ -1,15 +1,15 @@
 """Terminal UI and formatted reports using Rich."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 console = Console()
 
 
-def display_system_banner(specs: Dict[str, str]):
+def display_system_banner(specs: dict[str, str]):
     """Display system hardware specs banner."""
     grid = Table.grid(expand=True, padding=(0, 2))
     grid.add_column(style="cyan", justify="right")
@@ -22,16 +22,19 @@ def display_system_banner(specs: Dict[str, str]):
     mem_val = f"{specs.get('gpu_vram_total_mb', 'N/A')} MB ({specs.get('memory_type', 'VRAM')})"
 
     grid.add_row(
-        "GPU / Accelerator:", f"[bold green]{specs.get('gpu_name', 'N/A')}[/]",
-        mem_label, f"[bold]{mem_val}[/]"
+        "GPU / Accelerator:", f"[bold green]{specs.get('gpu_name', 'N/A')}[/]", mem_label, f"[bold]{mem_val}[/]"
     )
     grid.add_row(
-        "CPU:", f"{specs.get('cpu_model', 'N/A')} ({specs.get('cpu_cores', 'N/A')} vCPUs)",
-        "System RAM:", f"{specs.get('ram_total_gb', 'N/A')} GB"
+        "CPU:",
+        f"{specs.get('cpu_model', 'N/A')} ({specs.get('cpu_cores', 'N/A')} vCPUs)",
+        "System RAM:",
+        f"{specs.get('ram_total_gb', 'N/A')} GB",
     )
     grid.add_row(
-        "Driver / Metal:", f"{specs.get('driver_version', 'N/A')}",
-        "Platform:", f"[bold]{specs.get('platform', 'Unknown')}[/]"
+        "Driver / Metal:",
+        f"{specs.get('driver_version', 'N/A')}",
+        "Platform:",
+        f"[bold]{specs.get('platform', 'Unknown')}[/]",
     )
 
     console.print(
@@ -43,7 +46,7 @@ def display_system_banner(specs: Dict[str, str]):
     )
 
 
-def display_leaderboard(scorecards: List[Dict[str, Any]], specs: Optional[Dict[str, str]] = None):
+def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] | None = None):
     """Display the final ranked leaderboard in terminal."""
     if not scorecards:
         return
@@ -88,7 +91,9 @@ def display_leaderboard(scorecards: List[Dict[str, Any]], specs: Optional[Dict[s
     for idx, sc in enumerate(ranked, start=1):
         medal = "🥇 " if idx == 1 else ("🥈 " if idx == 2 else ("🥉 " if idx == 3 else f"#{idx} "))
         fit_status = (
-            "[red]⚠️ Spill[/]" if sc.get("vram_warning") else ("[green]✅ 100% Metal[/]" if is_mac else "[green]✅ 100% GPU[/]")
+            "[red]⚠️ Spill[/]"
+            if sc.get("vram_warning")
+            else ("[green]✅ 100% Metal[/]" if is_mac else "[green]✅ 100% GPU[/]")
         )
         rt = str(sc.get("runtime", "ollama")).lower()
         if "onnx" in rt:
@@ -115,7 +120,7 @@ def display_leaderboard(scorecards: List[Dict[str, Any]], specs: Optional[Dict[s
     console.print(table)
 
 
-def display_scenario_result(res: Dict[str, Any]):
+def display_scenario_result(res: dict[str, Any]):
     """Print one-line summary of scenario execution."""
     suite = res.get("suite", "")
     model = res.get("model", "")
@@ -151,12 +156,14 @@ def display_scenario_result(res: Dict[str, Any]):
     elif suite == "context":
         ctx = res.get("context_size", 0)
         p_tok = res.get("prompt_tok_per_sec", 0.0)
-        console.print(f"  {model_tag} {name} ({ctx} ctx) -> Prefill: {p_tok:.1f} t/s | Decode: {tok_s:.1f} t/s | Mem: {vram:.0f}MB")
+        console.print(
+            f"  {model_tag} {name} ({ctx} ctx) -> Prefill: {p_tok:.1f} t/s | Decode: {tok_s:.1f} t/s | Mem: {vram:.0f}MB"
+        )
     else:
         console.print(f"  {model_tag} {name} -> {tok_s:.1f} t/s | Mem: {vram:.0f}MB")
 
 
-def display_token_savings(scorecards: List[Dict[str, Any]]):
+def display_token_savings(scorecards: list[dict[str, Any]]):
     """Render Rich table detailing local tokens processed and estimated cloud cost savings."""
     if not scorecards:
         return
@@ -217,10 +224,10 @@ def display_token_savings(scorecards: List[Dict[str, Any]]):
 
 
 def display_1to1_comparison(
-    sc_a: Dict[str, Any],
-    sc_b: Dict[str, Any],
-    results_a: List[Dict[str, Any]],
-    results_b: List[Dict[str, Any]],
+    sc_a: dict[str, Any],
+    sc_b: dict[str, Any],
+    results_a: list[dict[str, Any]],
+    results_b: list[dict[str, Any]],
     pair_name: str = "1:1 Architecture Comparison",
 ):
     """Display a side-by-side terminal comparison between two 1:1 models across runtimes."""
@@ -288,11 +295,7 @@ def display_1to1_comparison(
 
     comp_a = sc_a.get("composite_score", 0.0)
     comp_b = sc_b.get("composite_score", 0.0)
-    comp_lead = (
-        f"Ollama (+{comp_a - comp_b:.1f})"
-        if comp_a >= comp_b
-        else f"Foundry (+{comp_b - comp_a:.1f})"
-    )
+    comp_lead = f"Ollama (+{comp_a - comp_b:.1f})" if comp_a >= comp_b else f"Foundry (+{comp_b - comp_a:.1f})"
     table.add_row("Composite Score", f"{comp_a:.1f}/100", f"{comp_b:.1f}/100", f"[bold yellow]{comp_lead}[/]")
 
     console.print("\n")

@@ -1,0 +1,41 @@
+[project]
+name = "ollama-benchrig"
+version = "0.1.0"
+description = "Benchmarking and profiling rig for local LLMs on Ollama, Microsoft Foundry Local, and ONNX Runtime GenAI."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "rich>=13.7.0",
+    "PyYAML>=6.0.1",
+]
+
+[project.optional-dependencies]
+charts = ["matplotlib>=3.8.0"]
+onnx-gpu = ["onnxruntime-genai-cuda"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", "models", "results"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # import sorting
+    "B",       # bugbear
+    "UP",      # pyupgrade
+]
+ignore = [
+    "E501",  # line length is enforced by the formatter where practical
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests extend sys.path before importing the modules under test

@@ -6,7 +6,9 @@ import re
 import shutil
 import subprocess
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
+
 import requests
 
 
@@ -29,11 +31,11 @@ class BaseRuntimeClient:
         """Return server runtime version string."""
         raise NotImplementedError
 
-    def list_installed_models(self) -> List[Dict[str, Any]]:
+    def list_installed_models(self) -> list[dict[str, Any]]:
         """Return list of locally installed / cached models with metadata."""
         raise NotImplementedError
 
-    def get_running_models(self) -> List[Dict[str, Any]]:
+    def get_running_models(self) -> list[dict[str, Any]]:
         """Return models currently loaded in memory/accelerator."""
         return []
 
@@ -45,7 +47,7 @@ class BaseRuntimeClient:
         """Unload model from accelerator/RAM to ensure clean baseline for next test."""
         return True
 
-    def pull_model(self, model_name: str, stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:
         """Pull / download a model to local cache."""
         return False
 
@@ -53,12 +55,27 @@ class BaseRuntimeClient:
         self,
         model: str,
         prompt: str,
-        system: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
+        system: str | None = None,
+        options: dict[str, Any] | None = None,
         measure_ttft: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute text generation with precision timing and token throughput telemetry."""
         raise NotImplementedError
+
+    def _failure_result(self, model: str, error: Exception, start_time: float) -> dict[str, Any]:
+        """Uniform `generate()` result for a failed request (start_time from time.perf_counter())."""
+        return {
+            "success": False,
+            "error": str(error),
+            "model": model,
+            "runtime": self.name,
+            "engine": self.engine_name,
+            "response": "",
+            "eval_tok_per_sec": 0.0,
+            "prompt_tok_per_sec": 0.0,
+            "ttft_sec": 0.0,
+            "total_time_sec": round(time.perf_counter() - start_time, 3),
+        }
 
 
 class OllamaClient(BaseRuntimeClient):
@@ -95,7 +112,7 @@ class OllamaClient(BaseRuntimeClient):
             pass
         return "unknown"
 
-    def list_installed_models(self) -> List[Dict[str, Any]]:
+    def list_installed_models(self) -> list[dict[str, Any]]:
         """Return list of installed models with metadata."""
         try:
             r = requests.get(f"{self.base_url}/api/tags", timeout=5)
@@ -108,7 +125,7 @@ class OllamaClient(BaseRuntimeClient):
             pass
         return []
 
-    def get_running_models(self) -> List[Dict[str, Any]]:
+    def get_running_models(self) -> list[dict[str, Any]]:
         """Return currently loaded models in memory."""
         try:
             r = requests.get(f"{self.base_url}/api/ps", timeout=5)
@@ -130,7 +147,7 @@ class OllamaClient(BaseRuntimeClient):
         except Exception:
             return False
 
-    def pull_model(self, model_name: str, stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:
         """Pull a model from Ollama library."""
         try:
             r = requests.post(
@@ -156,10 +173,10 @@ class OllamaClient(BaseRuntimeClient):
         self,
         model: str,
         prompt: str,
-        system: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
+        system: str | None = None,
+        options: dict[str, Any] | None = None,
         measure_ttft: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Send a generation request and return full response with Ollama native metrics.
 
@@ -170,7 +187,7 @@ class OllamaClient(BaseRuntimeClient):
         - load_time_sec (Model load duration)
         - total_time_sec
         """
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "stream": measure_ttft,
@@ -184,9 +201,9 @@ class OllamaClient(BaseRuntimeClient):
         payload["options"] = merged_options
 
         start_wall_time = time.perf_counter()
-        first_token_time: Optional[float] = None
-        collected_response: List[str] = []
-        final_metrics: Dict[str, Any] = {}
+        first_token_time: float | None = None
+        collected_response: list[str] = []
+        final_metrics: dict[str, Any] = {}
 
         try:
             if measure_ttft:
@@ -227,18 +244,7 @@ class OllamaClient(BaseRuntimeClient):
             end_wall_time = time.perf_counter()
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "model": model,
-                "runtime": self.name,
-                "engine": self.engine_name,
-                "response": "",
-                "eval_tok_per_sec": 0.0,
-                "prompt_tok_per_sec": 0.0,
-                "ttft_sec": 0.0,
-                "total_time_sec": round(time.perf_counter() - start_wall_time, 3),
-            }
+            return self._failure_result(model, e, start_wall_time)
 
         response_text = "".join(collected_response)
 
@@ -251,19 +257,11 @@ class OllamaClient(BaseRuntimeClient):
         total_dur_ns = final_metrics.get("total_duration", 0)
 
         # Calculate exact speeds
-        prompt_tok_sec = (
-            (prompt_eval_count / (prompt_eval_dur_ns / 1e9))
-            if prompt_eval_dur_ns > 0
-            else 0.0
-        )
-        eval_tok_sec = (
-            (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else 0.0
-        )
+        prompt_tok_sec = (prompt_eval_count / (prompt_eval_dur_ns / 1e9)) if prompt_eval_dur_ns > 0 else 0.0
+        eval_tok_sec = (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else 0.0
 
         ttft_sec = (
-            round(first_token_time - start_wall_time, 3)
-            if first_token_time
-            else round(prompt_eval_dur_ns / 1e9, 3)
+            round(first_token_time - start_wall_time, 3) if first_token_time else round(prompt_eval_dur_ns / 1e9, 3)
         )
 
         return {
@@ -317,13 +315,13 @@ class FoundryClient(BaseRuntimeClient):
         if self.auto_detect_port:
             self._discover_endpoint()
 
-    def _discover_endpoint(self) -> Optional[str]:
+    def _discover_endpoint(self) -> str | None:
         """Attempt to discover active Foundry Local server port via daemon.json or CLI."""
         # 1. Direct discovery file inspection (~/.foundry/daemon.json)
         daemon_json_path = os.path.expanduser("~/.foundry/daemon.json")
         if os.path.isfile(daemon_json_path):
             try:
-                with open(daemon_json_path, "r", encoding="utf-8") as f:
+                with open(daemon_json_path, encoding="utf-8") as f:
                     data = json.load(f)
                 web_urls = data.get("web_urls", [])
                 if web_urls:
@@ -342,8 +340,7 @@ class FoundryClient(BaseRuntimeClient):
         try:
             res = subprocess.run(
                 [foundry_bin, "server", "status"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=3,
             )
@@ -401,8 +398,7 @@ class FoundryClient(BaseRuntimeClient):
             try:
                 res = subprocess.run(
                     [foundry_bin, "--version"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     text=True,
                     timeout=3,
                 )
@@ -412,9 +408,9 @@ class FoundryClient(BaseRuntimeClient):
                 pass
         return "Foundry Local (ONNX Runtime)"
 
-    def list_installed_models(self) -> List[Dict[str, Any]]:
+    def list_installed_models(self) -> list[dict[str, Any]]:
         """List models available in Foundry Local catalog or active server."""
-        models: List[Dict[str, Any]] = []
+        models: list[dict[str, Any]] = []
 
         # 1. Query REST API /models endpoint
         try:
@@ -425,16 +421,18 @@ class FoundryClient(BaseRuntimeClient):
                 for m in raw_models:
                     model_id = m.get("id") or m.get("name", "")
                     if model_id:
-                        models.append({
-                            "name": model_id,
-                            "id": model_id,
-                            "runtime": self.name,
-                            "details": {
-                                "parameter_size": m.get("parameter_size", "ONNX"),
-                                "quantization_level": m.get("quantization", "ONNX"),
-                                "engine": self.engine_name,
-                            },
-                        })
+                        models.append(
+                            {
+                                "name": model_id,
+                                "id": model_id,
+                                "runtime": self.name,
+                                "details": {
+                                    "parameter_size": m.get("parameter_size", "ONNX"),
+                                    "quantization_level": m.get("quantization", "ONNX"),
+                                    "engine": self.engine_name,
+                                },
+                            }
+                        )
                 if models:
                     return models
         except Exception:
@@ -447,8 +445,7 @@ class FoundryClient(BaseRuntimeClient):
                 try:
                     res = subprocess.run(
                         [foundry_bin] + subcmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
+                        capture_output=True,
                         text=True,
                         timeout=5,
                     )
@@ -461,16 +458,18 @@ class FoundryClient(BaseRuntimeClient):
                             if parts:
                                 alias = parts[0]
                                 if not any(m["name"] == alias for m in models):
-                                    models.append({
-                                        "name": alias,
-                                        "id": alias,
-                                        "runtime": self.name,
-                                        "details": {
-                                            "parameter_size": "ONNX",
-                                            "quantization_level": "ONNX",
-                                            "engine": self.engine_name,
-                                        },
-                                    })
+                                    models.append(
+                                        {
+                                            "name": alias,
+                                            "id": alias,
+                                            "runtime": self.name,
+                                            "details": {
+                                                "parameter_size": "ONNX",
+                                                "quantization_level": "ONNX",
+                                                "engine": self.engine_name,
+                                            },
+                                        }
+                                    )
                 except Exception:
                     pass
 
@@ -487,59 +486,37 @@ class FoundryClient(BaseRuntimeClient):
         alias = re.sub(r"-instruct$", "", alias, flags=re.IGNORECASE)
         return alias.lower()
 
-    def load_model(self, model_name: str) -> bool:
-        """Explicitly load a model into memory in Foundry Local daemon."""
+    def _run_model_command(self, action: str, model_name: str, timeout: int) -> bool:
+        """Run `foundry model <action> <alias>`, retrying with the cleaned parent alias."""
         foundry_bin = shutil.which(self.cli_path)
         if not foundry_bin:
             return False
 
-        candidates = [model_name]
-        cleaned = self._clean_model_alias(model_name)
-        if cleaned not in candidates:
-            candidates.append(cleaned)
-
+        candidates = list(dict.fromkeys([model_name, self._clean_model_alias(model_name)]))
         for candidate in candidates:
             try:
                 res = subprocess.run(
-                    [foundry_bin, "model", "load", candidate],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    [foundry_bin, "model", action, candidate],
+                    capture_output=True,
                     text=True,
-                    timeout=180,
+                    timeout=timeout,
                 )
-                if res.returncode == 0:
-                    return True
-            except Exception:
-                pass
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if res.returncode == 0:
+                return True
         return False
 
+    def load_model(self, model_name: str) -> bool:
+        """Explicitly load a model into memory in Foundry Local daemon."""
+        return self._run_model_command("load", model_name, timeout=180)
+
     def unload_model(self, model_name: str) -> bool:
-        """Unload model via Foundry CLI or REST call to free accelerator memory."""
-        foundry_bin = shutil.which(self.cli_path)
-        if not foundry_bin:
-            return True
-
-        candidates = [model_name]
-        cleaned = self._clean_model_alias(model_name)
-        if cleaned not in candidates:
-            candidates.append(cleaned)
-
-        for candidate in candidates:
-            try:
-                res = subprocess.run(
-                    [foundry_bin, "model", "unload", candidate],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=10,
-                )
-                if res.returncode == 0:
-                    return True
-            except Exception:
-                pass
+        """Unload model via Foundry CLI to free accelerator memory (best effort; never fails a run)."""
+        self._run_model_command("unload", model_name, timeout=10)
         return True
 
-    def pull_model(self, model_name: str, stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:
         """Download model via Foundry CLI (foundry model download <alias>)."""
         foundry_bin = shutil.which(self.cli_path)
         if not foundry_bin:
@@ -552,8 +529,7 @@ class FoundryClient(BaseRuntimeClient):
                 stream_callback({"status": f"Downloading {model_name} via Foundry CLI..."})
             res = subprocess.run(
                 [foundry_bin, "model", "download", model_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=600,
             )
@@ -574,10 +550,10 @@ class FoundryClient(BaseRuntimeClient):
         self,
         model: str,
         prompt: str,
-        system: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
+        system: str | None = None,
+        options: dict[str, Any] | None = None,
         measure_ttft: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute chat completion using MS Foundry Server OpenAI-compatible endpoint.
         Captures Time to First Token (TTFT) via Server-Sent Events streaming.
@@ -588,7 +564,7 @@ class FoundryClient(BaseRuntimeClient):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": measure_ttft,
@@ -608,13 +584,13 @@ class FoundryClient(BaseRuntimeClient):
             if "seed" in options:
                 payload["seed"] = int(options["seed"])
 
-        if "max_tokens" not in payload and getattr(self, "default_max_tokens", None):
+        if "max_tokens" not in payload and self.default_max_tokens:
             payload["max_tokens"] = self.default_max_tokens
 
         start_wall_time = time.perf_counter()
-        first_token_time: Optional[float] = None
-        collected_response: List[str] = []
-        reported_usage: Optional[Dict[str, Any]] = None
+        first_token_time: float | None = None
+        collected_response: list[str] = []
+        reported_usage: dict[str, Any] | None = None
         total_stream_chunks = 0
 
         endpoint = self._get_api_endpoint("chat/completions")
@@ -655,7 +631,7 @@ class FoundryClient(BaseRuntimeClient):
                     line_str = line.decode("utf-8") if isinstance(line, bytes) else line
                     if not line_str.startswith("data:"):
                         continue
-                    data_str = line_str[len("data:"):].strip()
+                    data_str = line_str[len("data:") :].strip()
                     if data_str == "[DONE]":
                         break
 
@@ -689,18 +665,7 @@ class FoundryClient(BaseRuntimeClient):
             end_wall_time = time.perf_counter()
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "model": model,
-                "runtime": self.name,
-                "engine": self.engine_name,
-                "response": "",
-                "eval_tok_per_sec": 0.0,
-                "prompt_tok_per_sec": 0.0,
-                "ttft_sec": 0.0,
-                "total_time_sec": round(time.perf_counter() - start_wall_time, 3),
-            }
+            return self._failure_result(model, e, start_wall_time)
 
         response_text = "".join(collected_response)
 
@@ -751,11 +716,12 @@ class FoundryClient(BaseRuntimeClient):
         }
 
 
-def create_runtime_client(runtime_name: str, config: Dict[str, Any]) -> BaseRuntimeClient:
+def create_runtime_client(runtime_name: str, config: dict[str, Any]) -> BaseRuntimeClient:
     """Factory helper returning appropriate client instance for specified runtime."""
     runtime_name = runtime_name.lower().strip()
     if runtime_name in ("onnx-gpu", "onnx_gpu", "onnx-genai", "direct-onnx"):
         from core.onnx_client import OnnxGenAiClient
+
         o_conf = config.get("onnx", {})
         models_dir = o_conf.get("models_dir", "models")
         timeout = o_conf.get("timeout_sec", 300)
@@ -783,4 +749,3 @@ def create_runtime_client(runtime_name: str, config: Dict[str, Any]) -> BaseRunt
     timeout = o_conf.get("timeout_sec", 180)
     num_ctx = o_conf.get("default_num_ctx", 4096)
     return OllamaClient(base_url=base_url, timeout_sec=timeout, default_num_ctx=num_ctx)
-

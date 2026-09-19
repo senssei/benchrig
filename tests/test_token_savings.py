@@ -2,6 +2,7 @@
 
 import unittest
 from unittest.mock import MagicMock
+
 from core.runner import BenchmarkRunner
 from reporting.display import display_token_savings
 from reporting.markdown import generate_markdown_report
@@ -14,11 +15,7 @@ class TestTokenSavings(unittest.TestCase):
         self.mock_client = MagicMock()
         self.runner = BenchmarkRunner(
             client=self.mock_client,
-            config={
-                "benchmark": {
-                    "composite_weights": {"coding": 0.4, "reasoning": 0.3, "performance": 0.3}
-                }
-            }
+            config={"benchmark": {"composite_weights": {"coding": 0.4, "reasoning": 0.3, "performance": 0.3}}},
         )
         self.runner.specs = {"memory_type": "Unified Memory (UMA)", "gpu_type": "apple_silicon"}
 
@@ -96,6 +93,7 @@ class TestTokenSavings(unittest.TestCase):
         specs = {"platform_short": "Apple Silicon (Metal)", "memory_type": "UMA", "gpu_type": "apple_silicon"}
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
             temp_path = f.name
 

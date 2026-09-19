@@ -218,9 +218,7 @@ print("CUDA Available:", client.is_cuda_available())
 
 client.load_model("Phi-4-mini-instruct-cuda-gpu")
 response = client.generate(
-    model="Phi-4-mini-instruct-cuda-gpu",
-    prompt="Explain quicksort in 2 sentences.",
-    options={"max_tokens": 80}
+    model="Phi-4-mini-instruct-cuda-gpu", prompt="Explain quicksort in 2 sentences.", options={"max_tokens": 80}
 )
 print("Response:", response["response"])
 print(f"Speed: {response['eval_tok_per_sec']} tok/s | TTFT: {response['ttft_sec']}s")

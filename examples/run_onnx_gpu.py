@@ -14,12 +14,14 @@ import time
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+
 def _bootstrap_cuda_env():
     """Ensure CUDA dynamic linker paths and library symlinks are configured before ONNX runtime initialization."""
     if os.environ.get("_ONNX_CUDA_BOOTSTRAPPED") == "1":
         return
 
     import glob
+
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     venv_nvidia = glob.glob(os.path.join(project_root, ".venv/lib/python*/site-packages/nvidia/*/lib"))
     ollama_cuda13 = "/usr/local/lib/ollama/cuda_v13"
@@ -51,9 +53,17 @@ def _bootstrap_cuda_env():
 def main():
     _bootstrap_cuda_env()
     from core.onnx_client import OnnxGenAiClient
+
     parser = argparse.ArgumentParser(description="Direct ONNX Runtime GenAI GPU Inference Runner")
-    parser.add_argument("--model", type=str, default="Phi-4-mini-instruct-cuda-gpu", help="Model name or directory in models/")
-    parser.add_argument("--prompt", type=str, default="Write a python function to compute the nth Fibonacci number efficiently.", help="User prompt")
+    parser.add_argument(
+        "--model", type=str, default="Phi-4-mini-instruct-cuda-gpu", help="Model name or directory in models/"
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="Write a python function to compute the nth Fibonacci number efficiently.",
+        help="User prompt",
+    )
     parser.add_argument("--system", type=str, default=None, help="System prompt")
     parser.add_argument("--max-tokens", type=int, default=512, help="Maximum new tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.1, help="Sampling temperature")
@@ -102,8 +112,12 @@ def main():
     print("\n" + "=" * 60)
     print("📊 Inference Telemetry:")
     print(f"  • Time to First Token (TTFT): {result.get('ttft_sec', 0.0):.3f} s")
-    print(f"  • Prefill Speed:              {result.get('prompt_tok_per_sec', 0.0):.1f} tok/s ({result.get('prompt_eval_count', 0)} prompt tokens)")
-    print(f"  • Decode Speed:               {result.get('eval_tok_per_sec', 0.0):.1f} tok/s ({result.get('eval_count', 0)} completion tokens)")
+    print(
+        f"  • Prefill Speed:              {result.get('prompt_tok_per_sec', 0.0):.1f} tok/s ({result.get('prompt_eval_count', 0)} prompt tokens)"
+    )
+    print(
+        f"  • Decode Speed:               {result.get('eval_tok_per_sec', 0.0):.1f} tok/s ({result.get('eval_count', 0)} completion tokens)"
+    )
     print(f"  • Total Inference Duration:   {result.get('total_time_sec', 0.0):.3f} s (Wall clock: {t1 - t0:.3f} s)")
     print("=" * 60)
 

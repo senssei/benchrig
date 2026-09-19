@@ -10,8 +10,6 @@ from core.hardware import (
     DarwinAppleSiliconProvider,
     GenericCPUProvider,
     HardwareSampler,
-    LinuxNvidiaProvider,
-    get_hardware_provider,
     get_system_specs,
 )
 from reporting.display import display_leaderboard, display_system_banner
@@ -123,6 +121,7 @@ Compressions:                             78901.
         sampler = HardwareSampler(interval_sec=0.01, provider=mock_provider)
         sampler.start()
         import time
+
         time.sleep(0.05)
         metrics = sampler.stop()
 

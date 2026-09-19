@@ -1,11 +1,11 @@
 """Comprehensive unit tests covering Microsoft Foundry Server Runtime integration and cross-runtime benchmarking."""
 
-import json
 import os
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+from benchmark import resolve_target_models
 from core.client import (
     BaseRuntimeClient,
     FoundryClient,
@@ -15,7 +15,6 @@ from core.client import (
 from core.runner import BenchmarkRunner
 from reporting.display import display_leaderboard, display_scenario_result
 from reporting.markdown import generate_markdown_report
-from benchmark import resolve_target_models
 
 
 class TestFoundryClient(unittest.TestCase):
@@ -90,7 +89,7 @@ class TestFoundryClient(unittest.TestCase):
             b'data: {"id":"chatcmpl-1","choices":[{"delta":{"content":"def add(a, b):\\n"}}]}',
             b'data: {"id":"chatcmpl-1","choices":[{"delta":{"content":"    return a + b"}}]}',
             b'data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":18,"total_tokens":30}}',
-            b'data: [DONE]',
+            b"data: [DONE]",
         ]
 
         mock_resp = MagicMock()
@@ -376,8 +375,8 @@ class TestCrossRuntimeReporting(unittest.TestCase):
 
     def test_1to1_comparison_report_generation(self):
         """Verify generate_1to1_comparison_report produces head-to-head analysis."""
-        from reporting.markdown import generate_1to1_comparison_report
         from reporting.display import display_1to1_comparison
+        from reporting.markdown import generate_1to1_comparison_report
 
         sc_a = {
             "model": "phi3:mini",
@@ -406,10 +405,25 @@ class TestCrossRuntimeReporting(unittest.TestCase):
             "est_cost_saved_usd": 0.0268,
         }
         res_a = [
-            {"test_id": "code_lru", "name": "LRU Cache", "passed": True, "passed_tests": 2, "total_tests": 2, "eval_tok_per_sec": 65.9}
+            {
+                "test_id": "code_lru",
+                "name": "LRU Cache",
+                "passed": True,
+                "passed_tests": 2,
+                "total_tests": 2,
+                "eval_tok_per_sec": 65.9,
+            }
         ]
         res_b = [
-            {"test_id": "code_lru", "name": "LRU Cache", "passed": False, "passed_tests": 0, "total_tests": 2, "eval_tok_per_sec": 8.7, "sandbox_error": "SyntaxError"}
+            {
+                "test_id": "code_lru",
+                "name": "LRU Cache",
+                "passed": False,
+                "passed_tests": 0,
+                "total_tests": 2,
+                "eval_tok_per_sec": 8.7,
+                "sandbox_error": "SyntaxError",
+            }
         ]
         specs = {
             "platform_short": "WSL2 (NVIDIA)",
@@ -451,4 +465,3 @@ class TestCrossRuntimeReporting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

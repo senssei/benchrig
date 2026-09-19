@@ -8,10 +8,10 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
-def find_nvidia_smi() -> Optional[str]:
+def find_nvidia_smi() -> str | None:
     """Find path to nvidia-smi (including WSL standard locations)."""
     locations = [
         shutil.which("nvidia-smi"),
@@ -27,10 +27,10 @@ def find_nvidia_smi() -> Optional[str]:
 class BaseHardwareProvider:
     """Base hardware interface for platform-specific specs and metrics."""
 
-    def get_specs(self) -> Dict[str, str]:
+    def get_specs(self) -> dict[str, str]:
         raise NotImplementedError
 
-    def read_gpu(self) -> Tuple[float, float, float, float, float]:
+    def read_gpu(self) -> tuple[float, float, float, float, float]:
         """Read (vram_used_mb, vram_total_mb, util_pct, temp_c, power_w)."""
         return 0.0, 0.0, 0.0, 0.0, 0.0
 
@@ -38,7 +38,7 @@ class BaseHardwareProvider:
         """Read currently used system RAM in GB."""
         return 0.0
 
-    def get_warning_threshold_mb(self, custom_setting: Optional[Any] = None, total_mb: float = 0.0) -> float:
+    def get_warning_threshold_mb(self, custom_setting: Any | None = None, total_mb: float = 0.0) -> float:
         """Calculate VRAM/UMA warning threshold in MB."""
         if isinstance(custom_setting, (int, float)) and custom_setting > 0:
             return float(custom_setting)
@@ -51,7 +51,7 @@ class BaseHardwareProvider:
 class DarwinAppleSiliconProvider(BaseHardwareProvider):
     """Hardware provider for macOS Apple Silicon (M1/M2/M3/M4) with Unified Memory & Metal."""
 
-    def __init__(self, client: Optional[Any] = None):
+    def __init__(self, client: Any | None = None):
         self.client = client
         self._total_mem_bytes = self._query_hw_memsize()
         self._total_mem_mb = round(self._total_mem_bytes / (1024 * 1024), 1)
@@ -61,8 +61,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
         try:
             res = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=2,
             )
@@ -77,8 +76,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
         try:
             res = subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=2,
             )
@@ -95,8 +93,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
         try:
             res = subprocess.run(
                 ["system_profiler", "SPDisplaysDataType"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=3,
             )
@@ -111,7 +108,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
             pass
         return f"{cpu_model} (Metal GPU)"
 
-    def get_specs(self) -> Dict[str, str]:
+    def get_specs(self) -> dict[str, str]:
         cpu_model = self._query_cpu_model()
         gpu_name = self._query_gpu_name(cpu_model)
         mac_ver = platform.mac_ver()[0] or "macOS"
@@ -121,7 +118,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
 
         return {
             "platform": f"macOS {mac_ver} ({arch})",
-            "platform_short": f"macOS Apple Silicon (Metal)",
+            "platform_short": "macOS Apple Silicon (Metal)",
             "cpu_model": cpu_model,
             "cpu_cores": str(os.cpu_count() or "Unknown"),
             "ram_total_gb": ram_total_gb,
@@ -173,8 +170,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
         try:
             res = subprocess.run(
                 ["vm_stat"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=1.0,
             )
@@ -203,8 +199,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
         try:
             res = subprocess.run(
                 ["ioreg", "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=1.0,
             )
@@ -226,7 +221,7 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
                 pass
         return 0.0
 
-    def read_gpu(self) -> Tuple[float, float, float, float, float]:
+    def read_gpu(self) -> tuple[float, float, float, float, float]:
         """
         Return (vram_used_mb, vram_total_mb, util_pct, temp_c, power_w).
         On Apple Silicon, VRAM is allocated from Unified Memory.
@@ -240,10 +235,10 @@ class DarwinAppleSiliconProvider(BaseHardwareProvider):
 class LinuxNvidiaProvider(BaseHardwareProvider):
     """Hardware provider for Linux/WSL2 with NVIDIA GPUs (nvidia-smi)."""
 
-    def __init__(self, smi_path: Optional[str] = None):
+    def __init__(self, smi_path: str | None = None):
         self.smi_path = smi_path or find_nvidia_smi()
 
-    def get_specs(self) -> Dict[str, str]:
+    def get_specs(self) -> dict[str, str]:
         specs = {
             "platform": "Linux",
             "platform_short": "Linux (NVIDIA)",
@@ -268,7 +263,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
 
         # CPU info
         try:
-            with open("/proc/cpuinfo", "r") as f:
+            with open("/proc/cpuinfo") as f:
                 for line in f:
                     if "model name" in line:
                         specs["cpu_model"] = line.split(":", 1)[1].strip()
@@ -278,7 +273,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
 
         # RAM info
         try:
-            with open("/proc/meminfo", "r") as f:
+            with open("/proc/meminfo") as f:
                 for line in f:
                     if line.startswith("MemTotal:"):
                         kb = int(line.split()[1])
@@ -296,8 +291,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
                         "--query-gpu=name,memory.total,driver_version",
                         "--format=csv,noheader,nounits",
                     ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     text=True,
                     check=True,
                     timeout=3,
@@ -312,7 +306,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
 
         return specs
 
-    def read_gpu(self) -> Tuple[float, float, float, float, float]:
+    def read_gpu(self) -> tuple[float, float, float, float, float]:
         if not self.smi_path:
             return 0.0, 0.0, 0.0, 0.0, 0.0
         try:
@@ -322,8 +316,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
                     "--query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
                     "--format=csv,noheader,nounits",
                 ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=1.0,
             )
@@ -343,7 +336,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
         try:
             total_kb = 0
             avail_kb = 0
-            with open("/proc/meminfo", "r") as f:
+            with open("/proc/meminfo") as f:
                 for line in f:
                     if line.startswith("MemTotal:"):
                         total_kb = int(line.split()[1])
@@ -360,7 +353,7 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
 class GenericCPUProvider(BaseHardwareProvider):
     """Fallback provider for generic environments without dedicated GPU."""
 
-    def get_specs(self) -> Dict[str, str]:
+    def get_specs(self) -> dict[str, str]:
         return {
             "platform": f"{platform.system()} ({platform.machine()})",
             "platform_short": f"{platform.system()} (CPU)",
@@ -376,7 +369,7 @@ class GenericCPUProvider(BaseHardwareProvider):
         }
 
 
-def get_hardware_provider(client: Optional[Any] = None) -> BaseHardwareProvider:
+def get_hardware_provider(client: Any | None = None) -> BaseHardwareProvider:
     """Detect platform and return appropriate hardware provider."""
     # Check macOS Apple Silicon
     if sys.platform == "darwin":
@@ -393,7 +386,7 @@ def get_hardware_provider(client: Optional[Any] = None) -> BaseHardwareProvider:
     return GenericCPUProvider()
 
 
-def get_system_specs(client: Optional[Any] = None) -> Dict[str, str]:
+def get_system_specs(client: Any | None = None) -> dict[str, str]:
     """Get system CPU, RAM, and GPU specifications based on active platform."""
     provider = get_hardware_provider(client=client)
     return provider.get_specs()
@@ -405,9 +398,9 @@ class HardwareSampler:
     def __init__(
         self,
         interval_sec: float = 0.15,
-        client: Optional[Any] = None,
-        provider: Optional[BaseHardwareProvider] = None,
-        warning_threshold_setting: Optional[Any] = None,
+        client: Any | None = None,
+        provider: BaseHardwareProvider | None = None,
+        warning_threshold_setting: Any | None = None,
     ):
         self.interval_sec = interval_sec
         self.client = client
@@ -415,13 +408,13 @@ class HardwareSampler:
         self.warning_threshold_setting = warning_threshold_setting
 
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
-        self.vram_samples: List[float] = []
-        self.gpu_util_samples: List[float] = []
-        self.power_samples: List[float] = []
-        self.temp_samples: List[float] = []
-        self.ram_used_samples: List[float] = []
+        self.vram_samples: list[float] = []
+        self.gpu_util_samples: list[float] = []
+        self.power_samples: list[float] = []
+        self.temp_samples: list[float] = []
+        self.ram_used_samples: list[float] = []
 
         self.start_vram_mb: float = 0.0
         self.vram_total_mb: float = 0.0
@@ -463,7 +456,7 @@ class HardwareSampler:
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
-    def stop(self) -> Dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """Stop sampling and return aggregated summary metrics."""
         self._stop_event.set()
         if self._thread:
@@ -474,26 +467,13 @@ class HardwareSampler:
             self.vram_total_mb = v_total_final
 
         peak_vram = max(self.vram_samples) if self.vram_samples else end_vram
-        min_vram = min(self.vram_samples) if self.vram_samples else self.start_vram_mb
-        avg_util = (
-            sum(self.gpu_util_samples) / len(self.gpu_util_samples)
-            if self.gpu_util_samples
-            else 0.0
-        )
+        avg_util = sum(self.gpu_util_samples) / len(self.gpu_util_samples) if self.gpu_util_samples else 0.0
         peak_util = max(self.gpu_util_samples) if self.gpu_util_samples else 0.0
-        avg_power = (
-            sum(self.power_samples) / len(self.power_samples)
-            if self.power_samples
-            else 0.0
-        )
+        avg_power = sum(self.power_samples) / len(self.power_samples) if self.power_samples else 0.0
         peak_temp = max(self.temp_samples) if self.temp_samples else 0.0
         peak_ram = max(self.ram_used_samples) if self.ram_used_samples else 0.0
 
-        vram_pct_used = (
-            (peak_vram / self.vram_total_mb * 100.0)
-            if self.vram_total_mb > 0
-            else 0.0
-        )
+        vram_pct_used = (peak_vram / self.vram_total_mb * 100.0) if self.vram_total_mb > 0 else 0.0
 
         warning_threshold = self.provider.get_warning_threshold_mb(
             self.warning_threshold_setting,

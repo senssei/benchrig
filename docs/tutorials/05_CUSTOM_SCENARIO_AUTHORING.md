@@ -17,7 +17,7 @@ All benchmark scenarios reside in the `scenarios/` directory as JSON files:
 
 ## 💻 1. Authoring a Custom Coding Scenario
 
-Coding scenarios are evaluated by [`core/sandbox.py`](../core/sandbox.py). The sandbox extracts the Python function from the model's response, appends your test harness, and executes the combined code in an isolated subprocess.
+Coding scenarios are evaluated by [`core/sandbox.py`](../../core/sandbox.py). The sandbox extracts the Python function from the model's response, appends your test harness, and executes the combined code in an isolated subprocess.
 
 ### Schema:
 ```json
@@ -54,7 +54,7 @@ Add the following object to `scenarios/coding.json`:
 
 ## 🧠 2. Authoring a Custom Reasoning Scenario
 
-Reasoning scenarios evaluate a model's logical deduction and chain-of-thought capability. The engine [`core/reasoning_parser.py`](../core/reasoning_parser.py) measures:
+Reasoning scenarios evaluate a model's logical deduction and chain-of-thought capability. The engine [`core/reasoning_parser.py`](../../core/reasoning_parser.py) measures:
 - Whether the model generates thinking tags (`<think>...</think>`).
 - Total tokens spent on reasoning vs final answer synthesis.
 - Correctness of the extracted final answer against `expected_answer`.

@@ -9,7 +9,7 @@ Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/Ollama-REST%20API-black?logo=ollama)](https://ollama.com)
 [![Hardware](https://img.shields.io/badge/Hardware-Apple%20Silicon%20%7C%20NVIDIA%20CUDA-brightgreen.svg)]()
-[![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)](https://github.com/psf/black)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
 </div>
 
@@ -44,7 +44,7 @@ flowchart TD
     end
 
     subgraph Runtimes ["Unified Runtime Clients (core/client.py)"]
-        B --> BaseClient["BaseRuntimeClient (Protocol/ABC)"]
+        B --> BaseClient["BaseRuntimeClient (base class)"]
         BaseClient --> Ollama["OllamaClient (llama.cpp)\n- http://localhost:11434"]
         BaseClient --> Foundry["FoundryClient (ONNX Runtime GenAI)\n- http://localhost:5272/v1"]
     end
@@ -306,7 +306,7 @@ Detailed architecture, configuration guides, benchmark specifications, and opera
 | 🧪 [**Benchmark Suites Mechanics**](docs/BENCHMARK_SUITES.md) | Evaluation methodology for Speed, Coding, Reasoning, Polish NLP, and Context Scaling suites. |
 | 💻 [**CLI Usage & Recipes**](docs/CLI_USAGE.md) | Command-line parameters, scenario filtering, cross-engine flags, and automation scripts. |
 | 📊 [**Hardware Telemetry & Profiling**](docs/HARDWARE_TELEMETRY.md) | Real-time GPU VRAM, compute load, Apple Silicon UMA memory, power draw, and temperature sampling. |
-| 🤖 [**Local Coder Skill (Ollama)**](docs/LOCAL_CODER_SKILL.md) | Agent integration (`ask_local.py`), subcommands (`code`, `test`, `review`, `refactor`), and AST self-healing loop for Ollama. |
+| 🤖 [**Local Coder Skill (Ollama)**](docs/OLLAMA_CODER_SKILL.md) | Agent integration (`ask_local.py`), subcommands (`code`, `test`, `review`, `refactor`), and AST self-healing loop for Ollama. |
 | 🤖 [**Foundry Coder Skill (MS Foundry)**](docs/FOUNDRY_CODER_SKILL.md) | Agent integration (`ask_foundry.py`), autonomous model loading, and AST self-healing for Microsoft Foundry Local. |
 | 🔌 [**Model Context Protocol (MCP)**](docs/MCP_SERVER.md) | MCP server configuration, tool schemas, and integration for both `ollama-local` and `foundry-local`. |
 | 📝 [**Scenario Authoring Guide**](docs/SCENARIOS_GUIDE.md) | Schema reference and instructions for creating custom coding, reasoning, and context scaling scenarios. |
@@ -320,7 +320,9 @@ Detailed architecture, configuration guides, benchmark specifications, and opera
 ollama-benchrig/
 ├── benchmark.py              # Main CLI entrypoint
 ├── config.yaml               # Global configuration (endpoints, weights, thresholds)
-├── requirements.txt          # Python dependencies (rich, PyYAML, requests)
+├── requirements.txt          # Runtime dependencies (rich, PyYAML, requests)
+├── requirements-dev.txt      # + test & lint tooling (pytest, ruff)
+├── pyproject.toml            # Project metadata, ruff and pytest configuration
 ├── setup_mac.sh              # Quickstart installer for macOS Apple Silicon
 ├── install_global_skill.sh   # Global installer for local-coder (Ollama)
 ├── install_foundry_skill.sh  # Global installer for foundry-coder (MS Foundry)
@@ -336,6 +338,7 @@ ollama-benchrig/
 │   ├── runner.py             # Benchmark suite coordinator & scoring engine
 │   ├── sandbox.py            # Sandboxed Python test harness runner
 │   └── reasoning_parser.py   # <think> tag parser & answer extractor
+├── .github/workflows/ci.yml  # CI: ruff lint/format check + pytest (Python 3.10 & 3.12)
 ├── docs/                     # Comprehensive documentation guides (11 guides + 5 tutorials)
 │   ├── README.md             # Documentation & tutorials index
 │   ├── ARCHITECTURE.md
@@ -374,12 +377,16 @@ ollama-benchrig/
 │   ├── LATEST_SUMMARY.md     # Latest benchmark Markdown report
 │   ├── latest.json           # Latest scorecard JSON
 │   └── runs/                 # Historical benchmark runs
-└── tests/                    # 100% offline unit test suite (63 unit tests)
+└── tests/                    # Offline unit test suite (no network or GPU required)
     ├── test_ask_local.py
+    ├── test_benchmark_cli.py
     ├── test_foundry_mcp_and_skill.py
     ├── test_foundry_runtime.py
     ├── test_hardware.py
     ├── test_onnx_client.py
+    ├── test_packaging_sync.py
+    ├── test_runner_suites.py
+    ├── test_sandbox.py
     └── test_token_savings.py
 ```
 
