@@ -114,7 +114,15 @@ benchrig --compare results/latest.json
 
 ---
 
+## 🧭 Other Runtimes
+
+The same commands work on other runtimes: `--runtime foundry`, `--runtime onnx-gpu` and `--runtime prism` (a
+[Prism](https://github.com/senssei/prism-local) server started with `prism serve`). `benchrig --check` shows which are reachable;
+see [Runtimes](../runtimes.md) for setup and model prefixes.
+
+---
+
 ## 🎯 Next Steps
-- Learn how to enable GPU acceleration in Microsoft Foundry Local: [Tutorial 2: Foundry GPU Setup](02_FOUNDRY_GPU_SETUP.md).
-- Run side-by-side cross-engine comparisons: [Tutorial 3: Cross-Engine Benchmarking](03_CROSS_ENGINE_BENCHMARKING.md).
+- Learn how to enable GPU acceleration in Microsoft Foundry Local: [Tutorial 2: Foundry GPU Setup](foundry-gpu-setup.md).
+- Run side-by-side cross-engine comparisons: [Tutorial 3: Cross-Engine Benchmarking](cross-engine-benchmarking.md).
 - Offload agent coding routines with zero token cost: see [local-coders](https://github.com/senssei/local-coders).

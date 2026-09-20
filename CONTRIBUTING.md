@@ -18,6 +18,20 @@ python -m build && twine check --strict dist/*     # packaging
 
 The test suite needs no GPU, Ollama, network or model files; keep new tests hermetic (mock clients, temp dirs).
 
+## Docs
+
+The documentation site is built with MkDocs Material from `docs/` (config: `mkdocs.yml`):
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve             # live preview
+mkdocs build --strict    # what CI runs; broken links fail the build
+```
+
+Add new pages to the `nav` in `mkdocs.yml`. If you add a CLI flag, a runtime, a config section or an environment variable,
+document it: `tests/test_docs.py` fails when they are missing from `docs/cli.md`, `docs/runtimes.md` or `docs/configuration.md`.
+The changelog page is `CHANGELOG.md` itself.
+
 ## Layout
 
 Everything shipped lives in `benchrig/`. The default `config.yaml` and the scenario suites are package data under

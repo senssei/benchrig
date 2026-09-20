@@ -6,6 +6,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from benchrig.core.runtimes import MODEL_MEMORY_NOTE, PREFILL_NOTE, runtime_label, scorecard_prefill
+from benchrig.reporting.common import EFFICIENCY_HEADERS, EFFICIENCY_NOTE, efficiency_rows, spread_lines, status_rich
+
 console = Console()
 
 
@@ -83,9 +86,10 @@ def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] 
     table.add_column("Coding Pass", justify="right", style="green")
     table.add_column("Reasoning", justify="right", style="blue")
     table.add_column("Eval Speed", justify="right", style="magenta")
-    table.add_column("Prefill Speed", justify="right")
+    table.add_column("Prefill (eff.)", justify="right")
     table.add_column("Avg TTFT", justify="right")
     table.add_column(f"Peak {mem_kind}", justify="right")
+    table.add_column(f"Model {mem_kind}", justify="right")
     table.add_column(fit_col_title, justify="center")
 
     for idx, sc in enumerate(ranked, start=1):
@@ -96,28 +100,52 @@ def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] 
             else ("[green]✅ 100% Metal[/]" if is_mac else "[green]✅ 100% GPU[/]")
         )
         rt = str(sc.get("runtime", "ollama")).lower()
-        if "onnx" in rt:
+        if "prism" in rt:
+            runtime_badge = "[bold green]Prism[/]"
+        elif "onnx" in rt:
             runtime_badge = "[bold magenta]ONNX GPU[/]"
         elif "foundry" in rt:
             runtime_badge = "[bold blue]MS Foundry[/]"
         else:
             runtime_badge = "[bold cyan]Ollama[/]"
 
+        cut = sc.get("truncated_runs", 0)
+        model_cell = f"[bold]{sc['model']}[/]" + (f" [yellow]⚠ {cut} cut[/]" if cut else "")
+        model_mem = sc.get("vram_model_mb")
         table.add_row(
             medal,
-            f"[bold]{sc['model']}[/]",
+            model_cell,
             runtime_badge,
             f"{sc['composite_score']:.1f}",
             f"{sc['coding_pass_rate']:.1f}%",
             f"{sc['reasoning_accuracy']:.1f}%",
             f"{sc['avg_eval_tok_sec']:.1f} t/s",
-            f"{sc.get('avg_prompt_tok_sec', sc.get('avg_prompt_eval_tok_sec', 0.0)):.1f} t/s",
+            f"{scorecard_prefill(sc):.1f} t/s",
             f"{sc['avg_ttft_sec']:.2f}s",
             f"{sc['peak_vram_mb']:.0f} MB",
+            f"{model_mem:.0f} MB" if model_mem is not None else "-",
             fit_status,
         )
 
     console.print(table)
+    console.print(f"[dim]{PREFILL_NOTE}[/]")
+    console.print(f"[dim]{MODEL_MEMORY_NOTE}[/]")
+    for line in spread_lines(ranked):
+        console.print(f"[dim]Spread over repeated runs: {line}[/]")
+    rows = efficiency_rows(ranked)
+    if rows:
+        extra = Table(title="🔋 Start-up, GPU fit & efficiency", header_style="bold green")
+        for index, header in enumerate(EFFICIENCY_HEADERS):
+            extra.add_column(header, justify="left" if index == 0 else "right")
+        for row in rows:
+            extra.add_row(*row)
+        console.print(extra)
+        console.print(f"[dim]{EFFICIENCY_NOTE}[/]")
+    if any(sc.get("truncated_runs") for sc in ranked):
+        console.print(
+            "[dim yellow]⚠ N cut: N responses stopped at the token budget (`num_predict`) before finishing, so those "
+            "runs are scored as if the model had not answered.[/]"
+        )
 
 
 def display_scenario_result(res: dict[str, Any]):
@@ -125,19 +153,16 @@ def display_scenario_result(res: dict[str, Any]):
     suite = res.get("suite", "")
     model = res.get("model", "")
     rt = res.get("runtime", "")
-    if "onnx" in rt.lower():
-        rt_name = "ONNX GenAI"
-    elif "foundry" in rt.lower():
-        rt_name = "MS Foundry"
-    else:
-        rt_name = "Ollama"
+    rt_name = runtime_label(rt)
     rt_prefix = f"[{rt_name}: " if rt else "["
     model_tag = f"{rt_prefix}{model}]" if rt else f"[{model}]"
     name = res.get("name", "")
     tok_s = res.get("eval_tok_per_sec", 0.0)
     vram = res.get("hardware", {}).get("vram_peak_mb", 0.0)
 
-    if not res.get("success", True):
+    # A wrong answer is a FAIL below; only a failed request (or, in older results, a record with no verdict) is an ERROR.
+    has_verdict = any(key in res for key in ("passed", "correct", "retrieved"))
+    if not res.get("success", True) and (res.get("error") or not has_verdict):
         err = res.get("error") or res.get("sandbox_error") or "Request failed"
         console.print(f"  {model_tag} {name} -> [bold red]ERROR[/] ({err}) | Mem: {vram:.0f}MB")
         return
@@ -156,8 +181,11 @@ def display_scenario_result(res: dict[str, Any]):
     elif suite == "context":
         ctx = res.get("context_size", 0)
         p_tok = res.get("prompt_tok_per_sec", 0.0)
+        found = ""
+        if "retrieved" in res:
+            found = " | [green]found the fact[/]" if res["retrieved"] else " | [red]missed the fact[/]"
         console.print(
-            f"  {model_tag} {name} ({ctx} ctx) -> Prefill: {p_tok:.1f} t/s | Decode: {tok_s:.1f} t/s | Mem: {vram:.0f}MB"
+            f"  {model_tag} {name} ({ctx} ctx) -> Prefill: {p_tok:.1f} t/s | Decode: {tok_s:.1f} t/s{found} | Mem: {vram:.0f}MB"
         )
     else:
         console.print(f"  {model_tag} {name} -> {tok_s:.1f} t/s | Mem: {vram:.0f}MB")
@@ -232,9 +260,11 @@ def display_1to1_comparison(
 ):
     """Display a side-by-side terminal comparison between two 1:1 models across runtimes."""
     mod_a = sc_a.get("model", "Model A")
-    rt_a = "Ollama (llama.cpp)" if sc_a.get("runtime") == "ollama" else "Model A"
+    name_a = runtime_label(sc_a.get("runtime"))
+    name_b = runtime_label(sc_b.get("runtime"))
+    rt_a = f"{name_a} ({sc_a['engine']})" if sc_a.get("engine") else name_a
     mod_b = sc_b.get("model", "Model B")
-    rt_b = "MS Foundry (ONNX Runtime)" if sc_b.get("runtime") == "foundry" else "Model B"
+    rt_b = f"{name_b} ({sc_b['engine']})" if sc_b.get("engine") else name_b
 
     # 1. Summary comparison table
     table = Table(
@@ -251,36 +281,36 @@ def display_1to1_comparison(
     spd_a = sc_a.get("avg_eval_tok_sec", 0.0)
     spd_b = sc_b.get("avg_eval_tok_sec", 0.0)
     spd_ratio = (
-        f"Ollama {spd_a / spd_b:.1f}x faster"
+        f"{name_a} {spd_a / spd_b:.1f}x faster"
         if spd_b > 0 and spd_a >= spd_b
-        else (f"Foundry {spd_b / spd_a:.1f}x faster" if spd_a > 0 else "N/A")
+        else (f"{name_b} {spd_b / spd_a:.1f}x faster" if spd_a > 0 else "N/A")
     )
     table.add_row("Decode Speed (tok/s)", f"{spd_a:.1f} t/s", f"{spd_b:.1f} t/s", f"[green]{spd_ratio}[/]")
 
-    pref_a = sc_a.get("avg_prompt_tok_sec", 0.0)
-    pref_b = sc_b.get("avg_prompt_tok_sec", 0.0)
+    pref_a = scorecard_prefill(sc_a)
+    pref_b = scorecard_prefill(sc_b)
     pref_ratio = (
-        f"Ollama {pref_a / pref_b:.1f}x faster"
+        f"{name_a} {pref_a / pref_b:.1f}x faster"
         if pref_b > 0 and pref_a >= pref_b
-        else (f"Foundry {pref_b / pref_a:.1f}x faster" if pref_a > 0 else "N/A")
+        else (f"{name_b} {pref_b / pref_a:.1f}x faster" if pref_a > 0 else "N/A")
     )
-    table.add_row("Prefill Speed (tok/s)", f"{pref_a:.1f} t/s", f"{pref_b:.1f} t/s", f"[green]{pref_ratio}[/]")
+    table.add_row("Prefill, eff. (tok/s)", f"{pref_a:.1f} t/s", f"{pref_b:.1f} t/s", f"[green]{pref_ratio}[/]")
 
     ttft_a = sc_a.get("avg_ttft_sec", 0.0)
     ttft_b = sc_b.get("avg_ttft_sec", 0.0)
     ttft_adv = (
-        f"Ollama {ttft_b / ttft_a:.1f}x lower"
+        f"{name_a} {ttft_b / ttft_a:.1f}x lower"
         if ttft_a > 0 and ttft_a <= ttft_b
-        else (f"Foundry {ttft_a / ttft_b:.1f}x lower" if ttft_b > 0 else "N/A")
+        else (f"{name_b} {ttft_a / ttft_b:.1f}x lower" if ttft_b > 0 else "N/A")
     )
     table.add_row("Avg TTFT (Latency)", f"{ttft_a:.2f}s", f"{ttft_b:.2f}s", f"[cyan]{ttft_adv}[/]")
 
     code_a = sc_a.get("coding_pass_rate", 0.0)
     code_b = sc_b.get("coding_pass_rate", 0.0)
     code_delta = (
-        f"[green]Foundry +{code_b - code_a:.1f}%[/]"
+        f"[green]{name_b} +{code_b - code_a:.1f}%[/]"
         if code_b > code_a
-        else (f"[green]Ollama +{code_a - code_b:.1f}%[/]" if code_a > code_b else "Equal")
+        else (f"[green]{name_a} +{code_a - code_b:.1f}%[/]" if code_a > code_b else "Equal")
     )
     table.add_row("Coding Pass Rate", f"{code_a:.1f}%", f"{code_b:.1f}%", code_delta)
 
@@ -288,14 +318,17 @@ def display_1to1_comparison(
     vram_b = sc_b.get("peak_vram_mb", 0.0)
     table.add_row(
         "Peak Memory Usage",
-        f"{vram_a:.0f} MB (VRAM)",
-        f"{vram_b:.0f} MB (RAM/VRAM)",
-        "[dim]GPU vs CPU/RAM[/]",
+        f"{vram_a:.0f} MB (whole GPU)",
+        f"{vram_b:.0f} MB (whole GPU)",
+        "[dim]incl. other processes[/]",
     )
+    mem_a, mem_b = sc_a.get("vram_model_mb"), sc_b.get("vram_model_mb")
+    if mem_a is not None and mem_b is not None:
+        table.add_row("Model Memory (Δ)", f"{mem_a:.0f} MB", f"{mem_b:.0f} MB", "[dim]peak - baseline before load[/]")
 
     comp_a = sc_a.get("composite_score", 0.0)
     comp_b = sc_b.get("composite_score", 0.0)
-    comp_lead = f"Ollama (+{comp_a - comp_b:.1f})" if comp_a >= comp_b else f"Foundry (+{comp_b - comp_a:.1f})"
+    comp_lead = f"{name_a} (+{comp_a - comp_b:.1f})" if comp_a >= comp_b else f"{name_b} (+{comp_b - comp_a:.1f})"
     table.add_row("Composite Score", f"{comp_a:.1f}/100", f"{comp_b:.1f}/100", f"[bold yellow]{comp_lead}[/]")
 
     console.print("\n")
@@ -322,16 +355,8 @@ def display_1to1_comparison(
             rb = tests_b.get(tid, {})
             tname = ra.get("name") or rb.get("name") or tid
 
-            status_a = (
-                f"[green]PASS ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})[/]"
-                if ra.get("passed")
-                else f"[red]FAIL ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})[/]"
-            )
-            status_b = (
-                f"[green]PASS ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})[/]"
-                if rb.get("passed")
-                else f"[red]FAIL ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})[/]"
-            )
+            status_a = status_rich(ra)
+            status_b = status_rich(rb)
             spd_str = f"{ra.get('eval_tok_per_sec', 0.0):.1f} vs {rb.get('eval_tok_per_sec', 0.0):.1f} t/s"
 
             t_table.add_row(tname, status_a, status_b, spd_str)

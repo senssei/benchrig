@@ -2,25 +2,46 @@
   {
     "context_size": 512,
     "name": "Context 512 tokens",
-    "prompt_multiplier": 1,
-    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+    "fill_ratio": 0.75,
+    "instruction": "What is the access code for vault 7? Answer with only the number, using the text above.",
+    "needle": "The access code for vault 7 is 4921.",
+    "needle_depth": 0.5,
+    "expected": "4921"
+  },
+  {
+    "context_size": 1024,
+    "name": "Context 1k tokens",
+    "fill_ratio": 0.75,
+    "instruction": "What is the maintenance password for hangar 3? Answer with only the number, using the text above.",
+    "needle": "The maintenance password for hangar 3 is 8305.",
+    "needle_depth": 0.5,
+    "expected": "8305"
   },
   {
     "context_size": 2048,
     "name": "Context 2k tokens",
-    "prompt_multiplier": 4,
-    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+    "fill_ratio": 0.75,
+    "instruction": "What is the launch key for station 12? Answer with only the number, using the text above.",
+    "needle": "The launch key for station 12 is 6174.",
+    "needle_depth": 0.5,
+    "expected": "6174"
   },
   {
     "context_size": 4096,
     "name": "Context 4k tokens",
-    "prompt_multiplier": 8,
-    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+    "fill_ratio": 0.75,
+    "instruction": "What is the serial number of unit 9? Answer with only the number, using the text above.",
+    "needle": "The serial number of unit 9 is 2938.",
+    "needle_depth": 0.5,
+    "expected": "2938"
   },
   {
     "context_size": 8192,
     "name": "Context 8k tokens (VRAM Stress)",
-    "prompt_multiplier": 16,
-    "instruction": "Summarize the key architectural principles described above in 2 bullet points."
+    "fill_ratio": 0.75,
+    "instruction": "What is the backup pin for archive 5? Answer with only the number, using the text above.",
+    "needle": "The backup pin for archive 5 is 7053.",
+    "needle_depth": 0.5,
+    "expected": "7053"
   }
 ]

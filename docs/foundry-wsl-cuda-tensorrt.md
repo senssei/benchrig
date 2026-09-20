@@ -2,6 +2,10 @@
 
 A comprehensive technical guide detailing architecture, NVIDIA GPU (GeForce RTX) acceleration configuration, and head-to-head benchmarking between **Microsoft Foundry Server Runtime** and **Ollama** in a **WSL2 (Ubuntu 24.04)** environment.
 
+> **Alternative:** if you only need ONNX models running on the GPU under WSL2, a [Prism](https://github.com/senssei/prism-local)
+> server can serve them without the Foundry cache injection described below, and BenchRig benchmarks it with `--runtime prism`.
+> See [Runtimes](runtimes.md#prism), including how to check which device actually ran a model.
+
 ---
 
 ## 1. 🏗 Architecture: Ollama vs Microsoft Foundry Local

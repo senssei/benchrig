@@ -1,0 +1,65 @@
+site_name: BenchRig
+site_description: Benchmarking and hardware profiling for local LLMs on Ollama, Microsoft Foundry Local, ONNX Runtime GenAI and Prism
+site_url: https://senssei.github.io/benchrig/
+repo_url: https://github.com/senssei/benchrig
+repo_name: senssei/benchrig
+edit_uri: edit/main/docs/
+strict: true
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle: { icon: material/weather-night, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle: { icon: material/weather-sunny, name: Switch to light mode }
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: ["."]
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Quickstart: tutorials/quickstart.md
+      - Runtimes: runtimes.md
+      - Configuration: configuration.md
+  - Reference:
+      - CLI: cli.md
+      - Benchmark suites: benchmark-suites.md
+      - Scenario format: scenarios.md
+      - Hardware telemetry: hardware-telemetry.md
+  - Guides:
+      - Cross-engine benchmarking: tutorials/cross-engine-benchmarking.md
+      - Custom scenarios: tutorials/custom-scenarios.md
+      - Foundry GPU setup (WSL2 / Linux): tutorials/foundry-gpu-setup.md
+      - Foundry, CUDA & TensorRT on WSL2: foundry-wsl-cuda-tensorrt.md
+  - Project:
+      - Architecture: architecture.md
+      - Development: development.md
+      - Changelog: changelog.md

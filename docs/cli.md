@@ -16,10 +16,10 @@ benchrig [OPTIONS]
 
 | Flag | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| **`--runtime`** | `ollama` \| `foundry` \| `onnx-gpu` \| `all` | Config default (`ollama`) | Selects the active inference runtime engine. `onnx-gpu` runs direct ONNX GenAI CUDA kernels. `all` runs cross-engine comparison. |
+| **`--runtime`** | `ollama` \| `foundry` \| `onnx-gpu` \| `prism` \| `all` | Config default (`ollama`) | Selects the active inference runtime engine. `onnx-gpu` runs direct ONNX GenAI CUDA kernels. `prism` benchmarks a running Prism server. `all` runs cross-engine comparison. |
 | **`--models`** | `string` | `installed` | Comma-separated list of models to evaluate. Supports runtime prefixes (e.g. `foundry:phi-4-mini` or `ollama:phi3:mini`). Defaults to all installed models. |
 | **`--suite`** | `all` \| `speed` \| `coding` \| `reasoning` \| `context` \| `polish` | `all` | Filters the benchmark to a specific evaluation domain. |
-| **`--runs`** | `integer` | `1` | Number of test repetitions per model scenario for variance calculation. |
+| **`--runs`** | `integer` | `1` | Number of repetitions of every scenario. Each repetition uses its own seed and (after the first) a prompt marker that defeats Ollama's prompt cache; scorecards then report the min-max of the headline metrics over the repetitions. Use `--runs 3` before quoting differences of a few percent. |
 | **`--check`** | `flag` | `false` | Runs non-destructive environment diagnostics, accelerator detection, and runtime connectivity verification. |
 | **`--pull-recommended`** | `flag` | `false` | Automatically downloads and pulls recommended benchmark models configured in `config.yaml`. |
 | **`--baseline`** | `path` | `None` | Path to a cached benchmark JSON run providing Ollama metrics so Ollama is never re-run. |
@@ -66,13 +66,22 @@ benchrig \
   --baseline results/runs/benchmark_20260918_212608.json
 ```
 
-### 5. Re-Rendering Reports & Scores Without Inference
+### 5. Benchmarking Through a Prism Server
+Start [Prism](https://github.com/senssei/prism-local) (`pip install prism-local && prism serve`), then:
+```bash
+benchrig --runtime prism --models prism:phi-4-mini --suite coding
+benchrig --runtime prism --models installed        # every ONNX model Prism serves (its `ollama:` proxies are skipped)
+benchrig --runtime prism --pair phi4_mini --baseline results/runs/benchmark_20260918_212608.json
+```
+Results record which engine served each model and, when Prism reports it, the device that ran the request.
+
+### 6. Re-Rendering Reports & Scores Without Inference
 Re-display terminal leaderboards and re-generate `1TO1_COMPARISON_REPORT.md` instantly:
 ```bash
 benchrig --compare results/latest.json
 ```
 
-### 6. Sandboxed Coding Precision Suite
+### 7. Sandboxed Coding Precision Suite
 Run algorithmic coding challenges with automated unit test assertions in isolated subshells:
 ```bash
 benchrig --runtime ollama \
@@ -80,7 +89,7 @@ benchrig --runtime ollama \
   --suite coding
 ```
 
-### 7. Automated Setup of Recommended Models
+### 8. Automated Setup of Recommended Models
 Pull standard benchmark models configured in `config.yaml`:
 ```bash
 benchrig --runtime ollama --pull-recommended

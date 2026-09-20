@@ -7,8 +7,8 @@ This guide provides technical specifications for contributing to **BenchRig**, a
 ## 🏗 Architectural Conventions
 
 BenchRig is architected around two core abstraction layers:
-1. **Hardware Abstraction Layer (HAL)**: Defined in [`benchrig/core/hardware.py`](../benchrig/core/hardware.py) via `BaseHardwareProvider`.
-2. **Runtime Abstraction Layer (RAL)**: Defined in [`benchrig/core/client.py`](../benchrig/core/client.py) via `BaseRuntimeClient`.
+1. **Hardware Abstraction Layer (HAL)**: Defined in [`benchrig/core/hardware.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/hardware.py) via `BaseHardwareProvider`.
+2. **Runtime Abstraction Layer (RAL)**: Defined in [`benchrig/core/client.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/client.py) via `BaseRuntimeClient`.
 
 All business logic, test runners, and telemetry collectors interface strictly through these abstractions.
 
@@ -74,22 +74,21 @@ ruff check .                          # lint (E, W, F, I, B, UP)
 ruff format .                         # auto-format (use --check in CI)
 ```
 
-The same three checks run in CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) on Python 3.10 and 3.12. The tests are plain `unittest` classes, so `python3 -m unittest discover -s tests` also works without pytest.
+The same three checks run in CI ([`.github/workflows/ci.yml`](https://github.com/senssei/benchrig/blob/main/.github/workflows/ci.yml)) on Python 3.10 and 3.12. The tests are plain `unittest` classes, so `python3 -m unittest discover -s tests` also works without pytest.
 
 ### Test Suite Structure:
-- [`tests/test_hardware.py`](../tests/test_hardware.py): Tests platform detection, `vm_stat` parsing, `ioreg` parsing, and NVIDIA SMI telemetry parsing.
-- [`tests/test_foundry_runtime.py`](../tests/test_foundry_runtime.py): Tests Microsoft Foundry REST client, OpenAI schema mapping, streaming TTFT probes, and port auto-discovery.
-- [`tests/test_ask_local.py`](../tests/test_ask_local.py): Tests AST syntax validation, self-healing retry logic, and markdown code fence extraction.
-- [`tests/test_token_savings.py`](../tests/test_token_savings.py): Validates token savings math and pricing estimation algorithms.
-- [`tests/test_runner_suites.py`](../tests/test_runner_suites.py): Verifies the result-record schema of every suite and scorecard maths using a fake runtime client.
-- [`tests/test_sandbox.py`](../tests/test_sandbox.py): Covers partial passes, syntax errors, timeouts, and temp-file cleanup in the code sandbox.
-- [`tests/test_benchmark_cli.py`](../tests/test_benchmark_cli.py): Covers `--models` / `--pair` target resolution and suite registry consistency.
+- [`tests/test_hardware.py`](https://github.com/senssei/benchrig/blob/main/tests/test_hardware.py): Tests platform detection, `vm_stat` parsing, `ioreg` parsing, and NVIDIA SMI telemetry parsing.
+- [`tests/test_foundry_runtime.py`](https://github.com/senssei/benchrig/blob/main/tests/test_foundry_runtime.py): Tests Microsoft Foundry REST client, OpenAI schema mapping, streaming TTFT probes, and port auto-discovery.
+- [`tests/test_token_savings.py`](https://github.com/senssei/benchrig/blob/main/tests/test_token_savings.py): Validates token savings math and pricing estimation algorithms.
+- [`tests/test_runner_suites.py`](https://github.com/senssei/benchrig/blob/main/tests/test_runner_suites.py): Verifies the result-record schema of every suite and scorecard maths using a fake runtime client.
+- [`tests/test_sandbox.py`](https://github.com/senssei/benchrig/blob/main/tests/test_sandbox.py): Covers partial passes, syntax errors, timeouts, and temp-file cleanup in the code sandbox.
+- [`tests/test_benchmark_cli.py`](https://github.com/senssei/benchrig/blob/main/tests/test_benchmark_cli.py): Covers `--models` / `--pair` target resolution and suite registry consistency.
 
 ---
 
 ## 🛡 Sandbox Security Principles
 
-The code execution engine ([`benchrig/core/sandbox.py`](../benchrig/core/sandbox.py)) enforces strict isolation rules:
+The code execution engine ([`benchrig/core/sandbox.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/sandbox.py)) enforces strict isolation rules:
 - **Subprocess Isolation**: Generated code runs in an isolated `subprocess.Popen` in its own session (dedicated process group).
 - **Process Group Termination**: If a model generates an infinite loop or blocks indefinitely, the entire process group is terminated using `os.killpg` after the timeout expires, so spawned grandchildren cannot outlive the test.
 - **No Global Namespace Pollution**: Code execution does not import or manipulate BenchRig's host process memory.

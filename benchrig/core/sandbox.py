@@ -9,11 +9,14 @@ import tempfile
 import time
 from typing import Any
 
+from benchrig.core.reasoning_parser import extract_thinking_and_answer
+
 EXTRACTED_CODE_PREVIEW_CHARS = 300
 
 
 def extract_python_code(text: str) -> str:
-    """Extract Python code block from markdown or raw LLM output."""
+    """Extract Python code block from markdown or raw LLM output, ignoring any `<think>` reasoning trace."""
+    text = extract_thinking_and_answer(text)["answer"]
     # Try ```python ... ```
     pattern = r"```(?:python|py)?\n(.*?)```"
     matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
@@ -26,6 +29,12 @@ def extract_python_code(text: str) -> str:
 
     # Fallback: if no code block markers, return text stripped
     return text.strip()
+
+
+def has_complete_code_block(text: str) -> bool:
+    """True if the answer part of `text` (outside any `<think>` trace) contains a closed ``` code fence."""
+    answer = extract_thinking_and_answer(text)["answer"]
+    return re.search(r"```(?:python|py)?\n.*?```", answer, re.DOTALL | re.IGNORECASE) is not None
 
 
 def _build_test_script(solution_code: str, test_assertions: list[str]) -> str:

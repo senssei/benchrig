@@ -1,6 +1,6 @@
 # 🧪 Custom Scenarios & Benchmark Authoring
 
-This guide explains how test scenarios are structured, how deterministic assertions are executed in isolated sandboxes, and how to author custom benchmarks within the [`scenarios/`](../benchrig/data/scenarios/) directory.
+This guide explains how test scenarios are structured, how deterministic assertions are executed in isolated sandboxes, and how to author custom benchmarks within the [`scenarios/`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/) directory.
 
 ---
 
@@ -10,11 +10,11 @@ All test cases in **BenchRig** are defined as modular JSON arrays in the `scenar
 
 | Scenario File | Target Suite | Evaluation Methodology |
 | :--- | :--- | :--- |
-| [`coding.json`](../benchrig/data/scenarios/coding.json) | `coding` | Python code block extraction, AST validation, execution in isolated subprocesses against unit assertion arrays. |
-| [`reasoning.json`](../benchrig/data/scenarios/reasoning.json) | `reasoning` | Multi-step mathematical and logic puzzles evaluated against ground truth strings or regex patterns; tracks `<think>` token metrics. |
-| [`speed.json`](../benchrig/data/scenarios/speed.json) | `speed` | Fixed-token prefill and decode prompts to measure raw token throughput and Time to First Token (TTFT). |
-| [`context_scaling.json`](../benchrig/data/scenarios/context_scaling.json) | `context` | Scaled input contexts (512, 1024, 2048, 4096, 8192 tokens) measuring TTFT latency degradation and memory growth. |
-| [`polish.json`](../benchrig/data/scenarios/polish.json) | `polish` | Polish language grammatical inflections, noun cases (biernik, dopełniacz), and syntax validation. |
+| [`coding.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/coding.json) | `coding` | Python code block extraction, AST validation, execution in isolated subprocesses against unit assertion arrays. |
+| [`reasoning.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/reasoning.json) | `reasoning` | Nine multi-step math and logic puzzles evaluated against ground truth (a `Final answer:` line, whole-number matching or regex); tracks thinking metrics. |
+| [`speed.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/speed.json) | `speed` | Fixed-token prefill and decode prompts to measure raw token throughput and Time to First Token (TTFT). |
+| [`context_scaling.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/context_scaling.json) | `context` | Scaled input contexts (512 to 8192 tokens) with a hidden fact to retrieve (`needle`, `instruction`, `expected`), measuring whether the model uses the context, TTFT degradation and memory growth. |
+| [`polish.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/polish.json) | `polish` | Polish language grammatical inflections, noun cases (biernik, dopełniacz), and syntax validation. |
 
 ---
 
@@ -39,7 +39,7 @@ Coding scenarios evaluate algorithmic accuracy by executing the generated Python
 }
 ```
 
-### Execution Flow in `SandboxRunner` ([`benchrig/core/sandbox.py`](../benchrig/core/sandbox.py))
+### Execution Flow in `SandboxRunner` ([`benchrig/core/sandbox.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/sandbox.py))
 1. **Code Extraction**: The runner parses the model response, stripping out markdown formatting (```` ```python ... ``` ````).
 2. **Harness Assembly**: Combines the extracted code with all statements in `test_assertions`.
 3. **Isolated Subprocess**: Writes the harness to an ephemeral temporary file and executes it using `python3` with a strict execution timeout (default: 10s).
@@ -82,7 +82,7 @@ Reasoning scenarios evaluate multi-step deduction, math problem solving, and cha
     "temperature": 0.1,
     "num_predict": 1024
   },
-  "check_type": "exact_or_contains | regex",
+  "check_type": "final_answer | exact_or_contains | regex | numeric",
   "expected_answer": "Standard ground truth",
   "accepted_patterns": [
     "pattern1",
@@ -91,8 +91,27 @@ Reasoning scenarios evaluate multi-step deduction, math problem solving, and cha
 }
 ```
 
+### Check Types
+
+| `check_type` | The answer is correct when... |
+| :--- | :--- |
+| `final_answer` (recommended) | The **last** line after a `Final answer` marker fully matches one of the `accepted_patterns` (`re.fullmatch`, case-insensitive). Markdown, LaTeX (`\boxed{\dfrac{1}{6}}` reads as `1/6`), `$`, thousands separators and a trailing full stop are removed first. No marker means no answer. End the prompt with `End with exactly one line in the form: Final answer: <answer>`. |
+| `exact_or_contains` | `expected_answer` or one of `accepted_patterns` occurs in the answer. Patterns that contain a digit only match as whole numbers (`1/6` does not match `11/60`, `114.6` does not match `1114.60`); other patterns are plain substrings. |
+| `regex` | One of `accepted_patterns` matches the **end** of the answer (last 300 characters) after markdown, bullets, punctuation and line breaks are collapsed to single spaces. Use bounded gaps, not `.*`. |
+| `numeric` | The `\boxed{...}` number, or else the last number in the answer, equals `expected_answer`. |
+
+A response that stops inside an unclosed `<think>` has no answer, and text that only appears in the thinking never counts.
+
+The `options` may also carry `think` (`true` or `false`) to turn thinking on or off for that scenario on Ollama models that can think;
+see [Configuration](configuration.md).
+
+### Verifying Your Expected Answer
+A wrong expectation silently ranks models wrongly, so compute the answer with independent code (a brute force or a formula) and
+check that the scenario accepts it and rejects near misses. `tests/test_scenarios.py` does this for every bundled `final_answer`
+scenario and is the pattern to copy.
+
 ### Answer Extraction & `<think>` Tag Parsing
-Reasoning models often encapsulate chain-of-thought reasoning inside `<think>...</think>` tags. The `ReasoningParser` ([`benchrig/core/reasoning_parser.py`](../benchrig/core/reasoning_parser.py)):
+Reasoning models often encapsulate chain-of-thought reasoning inside `<think>...</think>` tags. The `ReasoningParser` ([`benchrig/core/reasoning_parser.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/reasoning_parser.py)):
 1. Detects `<think>` blocks and separates the thinking stream from the final answer.
 2. Calculates the **Thinking Token Count** and thinking duration.
 3. Normalizes and validates the final response against `accepted_patterns` using either case-insensitive substring matching or regular expressions.

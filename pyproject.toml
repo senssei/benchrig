@@ -36,9 +36,11 @@ dependencies = [
 charts = ["matplotlib>=3.8.0"]
 onnx-gpu = ["onnxruntime-genai-cuda"]
 dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine"]
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
 
 [project.urls]
 Homepage = "https://github.com/senssei/benchrig"
+Documentation = "https://senssei.github.io/benchrig/"
 Issues = "https://github.com/senssei/benchrig/issues"
 Changelog = "https://github.com/senssei/benchrig/blob/main/CHANGELOG.md"
 

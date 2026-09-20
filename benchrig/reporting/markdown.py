@@ -4,6 +4,15 @@ import os
 from datetime import datetime
 from typing import Any
 
+from benchrig.core.runtimes import MODEL_MEMORY_NOTE, PREFILL_NOTE, record_prefill, runtime_label, scorecard_prefill
+from benchrig.reporting.common import (
+    EFFICIENCY_HEADERS,
+    EFFICIENCY_NOTE,
+    efficiency_rows,
+    spread_lines,
+    status_markdown,
+)
+
 
 def generate_markdown_report(
     scorecards: list[dict[str, Any]],
@@ -90,8 +99,8 @@ def generate_markdown_report(
         [
             "## 📈 Leaderboard",
             "",
-            f"| Rank | Model | Runtime | Engine | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill Speed (t/s) | Avg TTFT | Peak {mem_kind} | {mem_kind} Status |",
-            "|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
+            f"| Rank | Model | Runtime | Engine | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill, eff. (t/s) | Avg TTFT | Peak {mem_kind} | Model {mem_kind} (Δ) | {mem_kind} Status |",
+            "|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
         ]
     )
 
@@ -101,10 +110,34 @@ def generate_markdown_report(
             "⚠️ Near Memory Limit" if sc.get("vram_warning") else ("✅ 100% Metal" if is_mac else "✅ 100% VRAM")
         )
         rt = sc.get("runtime", "ollama")
-        rt_display = "MS Foundry" if "foundry" in str(rt).lower() else "Ollama"
+        rt_display = runtime_label(rt)
         engine_display = sc.get("engine", "llama.cpp" if rt_display == "Ollama" else "ONNX Runtime")
+        cut = sc.get("truncated_runs", 0)
+        model_cell = f"**`{sc['model']}`**" + (f" ⚠ {cut} cut" if cut else "")
+        model_mem = sc.get("vram_model_mb")
+        model_mem_cell = f"{model_mem:.0f} MB" if model_mem is not None else "-"
         lines.append(
-            f"| {medal} | **`{sc['model']}`** | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {sc['avg_prompt_tok_sec']:.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {vram_status} |"
+            f"| {medal} | {model_cell} | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {scorecard_prefill(sc):.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {model_mem_cell} | {vram_status} |"
+        )
+
+    lines.extend(["", f"*{PREFILL_NOTE}*", "", f"*{MODEL_MEMORY_NOTE}*"])
+    rows = efficiency_rows(ranked)
+    if rows:
+        lines.extend(["", "## 🔋 Start-up, GPU Fit & Efficiency", "", "| " + " | ".join(EFFICIENCY_HEADERS) + " |"])
+        lines.append("|:---|" + ":---:|" * (len(EFFICIENCY_HEADERS) - 1))
+        lines.extend("| `" + row[0] + "` | " + " | ".join(row[1:]) + " |" for row in rows)
+        lines.extend(["", f"*{EFFICIENCY_NOTE}*"])
+    spreads = spread_lines(ranked)
+    if spreads:
+        lines.extend(["", "**Spread over repeated runs** (min-max per metric; single runs are noisy):", ""])
+        lines.extend(f"- {line}" for line in spreads)
+    if any(sc.get("truncated_runs") for sc in ranked):
+        lines.extend(
+            [
+                "",
+                "*⚠ N cut: N responses stopped at the token budget (`num_predict`) before finishing, so those runs are "
+                "scored as if the model had not answered.*",
+            ]
         )
 
     # Token & Cloud Cost Savings Breakdown
@@ -132,19 +165,22 @@ def generate_markdown_report(
     # Cross-runtime comparison if multiple runtimes evaluated
     runtimes_present = {sc.get("runtime", "ollama") for sc in scorecards}
     if len(runtimes_present) > 1:
+        other_label = " / ".join(
+            sorted({runtime_label(sc.get("runtime")) for sc in scorecards if sc.get("runtime", "ollama") != "ollama"})
+        )
         lines.extend(
             [
                 "",
                 "---",
                 "",
-                "## ⚖️ Engine Architecture Comparison: Ollama (`llama.cpp`) vs MS Foundry (`ONNX Runtime GenAI`)",
+                f"## ⚖️ Engine Architecture Comparison: Ollama (`llama.cpp`) vs {other_label or 'other runtimes'}",
                 "",
-                "| Metric | Ollama (`llama.cpp`) | MS Foundry (`ONNX Runtime`) |",
+                f"| Metric | Ollama (`llama.cpp`) | {other_label or 'Other runtimes'} |",
                 "|:---|:---:|:---:|",
             ]
         )
         ollama_scs = [sc for sc in scorecards if sc.get("runtime") == "ollama"]
-        foundry_scs = [sc for sc in scorecards if "foundry" in str(sc.get("runtime", "")).lower()]
+        foundry_scs = [sc for sc in scorecards if sc.get("runtime", "ollama") != "ollama"]
         avg_ollama_speed = (
             sum(sc.get("avg_eval_tok_sec", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
         )
@@ -251,15 +287,18 @@ def generate_markdown_report(
                 "",
                 f"## 📐 Context Scaling & {mem_kind} Saturation (512 - 8192 tokens)",
                 "",
-                f"| Model | Context Window | Prefill Speed | Decode Speed | TTFT | Peak {mem_kind} | {mem_kind} Utilization (%) |",
-                "|:---|:---:|:---:|:---:|:---:|:---:|:---:|",
+                f"| Model | Context Window (`num_ctx`) | Prompt tokens | Found the fact | Prefill, eff. | Decode Speed | TTFT | Peak {mem_kind} | {mem_kind} Utilization (%) |",
+                "|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
             ]
         )
         for r in context_tests:
             v_peak = r.get("hardware", {}).get("vram_peak_mb", 0)
             v_pct = r.get("hardware", {}).get("vram_peak_pct", 0)
+            found = "-" if "retrieved" not in r else ("✅" if r["retrieved"] else "❌")
+            prompt_tokens = r.get("prompt_tokens_actual", r.get("prompt_eval_count", 0))
             lines.append(
-                f"| `{r['model']}` | {r.get('context_size', 0)} tok | {r.get('prompt_tok_per_sec', 0):.1f} t/s | {r.get('eval_tok_per_sec', 0):.1f} t/s | {r.get('ttft_sec', 0):.2f}s | {v_peak:.0f} MB | {v_pct:.1f}% |"
+                f"| `{r['model']}` | {r.get('context_size', 0)} tok | {prompt_tokens} | {found} | {record_prefill(r):.1f} t/s | "
+                f"{r.get('eval_tok_per_sec', 0):.1f} t/s | {r.get('ttft_sec', 0):.2f}s | {v_peak:.0f} MB | {v_pct:.1f}% |"
             )
 
     lines.extend(
@@ -293,23 +332,25 @@ def generate_1to1_comparison_report(
 
     platform_label = system_specs.get("platform_short") or system_specs.get("platform", "Local LLM")
     mod_a = scorecard_a.get("model", "Model A")
-    rt_a = "Ollama" if scorecard_a.get("runtime") == "ollama" else scorecard_a.get("runtime", "A")
+    rt_a = runtime_label(scorecard_a.get("runtime"), default=str(scorecard_a.get("runtime", "A")))
     eng_a = scorecard_a.get("engine", "llama.cpp")
 
     mod_b = scorecard_b.get("model", "Model B")
-    rt_b = "MS Foundry" if scorecard_b.get("runtime") == "foundry" else scorecard_b.get("runtime", "B")
+    rt_b = runtime_label(scorecard_b.get("runtime"), default=str(scorecard_b.get("runtime", "B")))
     eng_b = scorecard_b.get("engine", "ONNX Runtime GenAI")
 
     spd_a = scorecard_a.get("avg_eval_tok_sec", 0.0)
     spd_b = scorecard_b.get("avg_eval_tok_sec", 0.0)
-    pref_a = scorecard_a.get("avg_prompt_tok_sec", 0.0)
-    pref_b = scorecard_b.get("avg_prompt_tok_sec", 0.0)
+    pref_a = scorecard_prefill(scorecard_a)
+    pref_b = scorecard_prefill(scorecard_b)
     ttft_a = scorecard_a.get("avg_ttft_sec", 0.0)
     ttft_b = scorecard_b.get("avg_ttft_sec", 0.0)
     code_a = scorecard_a.get("coding_pass_rate", 0.0)
     code_b = scorecard_b.get("coding_pass_rate", 0.0)
     vram_a = scorecard_a.get("peak_vram_mb", 0.0)
     vram_b = scorecard_b.get("peak_vram_mb", 0.0)
+    mem_a = scorecard_a.get("vram_model_mb")
+    mem_b = scorecard_b.get("vram_model_mb")
 
     lines = [
         f"# ⚖️ 1:1 Model Comparison: `{mod_a}` vs `{mod_b}`",
@@ -332,7 +373,7 @@ def generate_1to1_comparison_report(
             else f"`{rt_b}` is **{spd_b / spd_a:.1f}x faster**"
         )
         + " |",
-        f"| **Prompt Prefill Speed** | **{pref_a:.1f} tok/s** | **{pref_b:.1f} tok/s** | "
+        f"| **Prompt Prefill Speed (eff.)** | **{pref_a:.1f} tok/s** | **{pref_b:.1f} tok/s** | "
         + (
             f"`{rt_a}` is **{pref_a / pref_b:.1f}x faster**"
             if pref_b > 0 and pref_a >= pref_b
@@ -353,7 +394,14 @@ def generate_1to1_comparison_report(
             else f"`{rt_a}` leads by **+{code_a - code_b:.1f}%**"
         )
         + " |",
-        f"| **Peak Memory Footprint** | **{vram_a:.0f} MB** (VRAM) | **{vram_b:.0f} MB** (RAM/VRAM) | Dedicated VRAM vs System RAM |",
+        f"| **Peak Memory (whole GPU)** | **{vram_a:.0f} MB** | **{vram_b:.0f} MB** | Includes other processes |",
+        *(
+            [
+                f"| **Model Memory (Δ over baseline)** | **{mem_a:.0f} MB** | **{mem_b:.0f} MB** | Peak minus GPU memory before load |"
+            ]
+            if mem_a is not None and mem_b is not None
+            else []
+        ),
         f"| **Composite Benchmark Score** | **{scorecard_a.get('composite_score', 0):.1f}/100** | **{scorecard_b.get('composite_score', 0):.1f}/100** | "
         + (
             f"`{rt_a}` (+{scorecard_a.get('composite_score', 0) - scorecard_b.get('composite_score', 0):.1f})"
@@ -379,16 +427,8 @@ def generate_1to1_comparison_report(
         rb = tests_b.get(tid, {})
         tname = ra.get("name") or rb.get("name") or tid
 
-        status_a = (
-            f"✅ PASS ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})"
-            if ra.get("passed")
-            else f"❌ FAIL ({ra.get('passed_tests', 0)}/{ra.get('total_tests', 0)})"
-        )
-        status_b = (
-            f"✅ PASS ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})"
-            if rb.get("passed")
-            else f"❌ FAIL ({rb.get('passed_tests', 0)}/{rb.get('total_tests', 0)})"
-        )
+        status_a = status_markdown(ra)
+        status_b = status_markdown(rb)
         spd_str = f"{ra.get('eval_tok_per_sec', 0.0):.1f} vs {rb.get('eval_tok_per_sec', 0.0):.1f} t/s"
 
         err_notes = []

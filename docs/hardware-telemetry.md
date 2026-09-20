@@ -1,6 +1,6 @@
 # 📊 Hardware Telemetry & Real-Time Profiling
 
-This guide details the internal design, telemetry capture mechanisms, and cross-platform metrics gathered by **BenchRig**'s Hardware Abstraction Layer ([`benchrig/core/hardware.py`](../benchrig/core/hardware.py)).
+This guide details the internal design, telemetry capture mechanisms, and cross-platform metrics gathered by **BenchRig**'s Hardware Abstraction Layer ([`benchrig/core/hardware.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/hardware.py)).
 
 ---
 
@@ -83,10 +83,18 @@ During benchmark runs, the sampler executes low-overhead batched queries:
 ```bash
 nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits
 ```
-- **VRAM Allocated (`memory.used`)**: Exact framebuffer memory currently occupied by model layers, KV cache, and context buffers.
+- **VRAM Allocated (`memory.used`)**: Framebuffer memory currently occupied on the GPU: model layers, KV cache and context buffers, **plus everything else using the GPU** (a desktop session, another model server, other processes; under WSL2 also the Windows host). `peak_vram_mb` in scorecards is therefore whole-GPU usage. To show the model's own footprint, BenchRig also reads GPU memory once **before** loading each model (after waiting for the reading to settle, since a previous model may still be unloading) and reports `vram_baseline_mb` and `vram_model_mb` (peak minus baseline, never negative). Caveats: with a runtime that does not unload between models (Prism), the baseline can still contain the previous model, which understates the difference; the `vram_warning` threshold keeps using the whole-GPU peak, because that is what decides whether memory spills.
 - **Compute Load (`utilization.gpu`)**: Real-time CUDA kernel occupancy percentage.
 - **Operating Temperature (`temperature.gpu`)**: Sensor temperature in degrees Celsius (°C).
-- **Power Consumption (`power.draw`)**: Real-time electrical power draw in Watts (W).
+- **Power Consumption (`power.draw`)**: Real-time electrical power draw in Watts (W). From it BenchRig derives **tokens per joule**
+  (`eval tokens/s ÷ average watts` of each request, token-weighted per model). It is GPU power only and includes whatever else uses the
+  GPU, so compare it between runs made under the same conditions. It is omitted where no power reading exists.
+
+### GPU fit (Ollama)
+After the warm-up request BenchRig asks Ollama's `/api/ps` how much of the loaded model is in GPU memory (`size_vram / size`) and
+reports it as `gpu_fit_pct`. Below 100% part of the model runs on the CPU, which explains a much lower decode speed. Other runtimes
+do not report it (the value is empty). The **cold start** (`cold_start_sec`) is the duration of that first request, which includes
+loading the model when it was not already resident.
 
 ### 3. Host System Memory
 Host RAM is parsed directly from `/proc/meminfo`:

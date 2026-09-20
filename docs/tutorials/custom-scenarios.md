@@ -17,7 +17,7 @@ All benchmark scenarios reside in the `scenarios/` directory as JSON files:
 
 ## 💻 1. Authoring a Custom Coding Scenario
 
-Coding scenarios are evaluated by [`benchrig/core/sandbox.py`](../../benchrig/core/sandbox.py). The sandbox extracts the Python function from the model's response, appends your test harness, and executes the combined code in an isolated subprocess.
+Coding scenarios are evaluated by [`benchrig/core/sandbox.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/sandbox.py). The sandbox extracts the Python function from the model's response, appends your test harness, and executes the combined code in an isolated subprocess.
 
 ### Schema:
 ```json
@@ -54,7 +54,7 @@ Add the following object to `scenarios/coding.json`:
 
 ## 🧠 2. Authoring a Custom Reasoning Scenario
 
-Reasoning scenarios evaluate a model's logical deduction and chain-of-thought capability. The engine [`benchrig/core/reasoning_parser.py`](../../benchrig/core/reasoning_parser.py) measures:
+Reasoning scenarios evaluate a model's logical deduction and chain-of-thought capability. The engine [`benchrig/core/reasoning_parser.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/reasoning_parser.py) measures:
 - Whether the model generates thinking tags (`<think>...</think>`).
 - Total tokens spent on reasoning vs final answer synthesis.
 - Correctness of the extracted final answer against `expected_answer`.
@@ -71,8 +71,15 @@ Reasoning scenarios evaluate a model's logical deduction and chain-of-thought ca
 ```
 
 ### Verification Heuristics:
-1. **LaTeX Boxed Notation**: If the model encloses its answer in `\boxed{7}`, `benchrig/core/reasoning_parser.py` extracts it automatically.
-2. **Natural Text Extraction**: The parser checks keywords like `"Answer: 7"`, `"final answer is 7"`, or standalone numeric values on the last line.
+The recommended way to score a reasoning scenario is `"check_type": "final_answer"`: the prompt ends with `End with exactly one line in the
+form: Final answer: <answer>` and `accepted_patterns` lists regular expressions that must match that whole line (see
+[Scenario format](../scenarios.md#check-types)). The other check types work as follows:
+
+1. **`numeric`**: takes a `\boxed{7}` number if there is one, otherwise the last number in the answer.
+2. **`exact_or_contains`**: looks for `expected_answer` or an accepted pattern in the answer; numbers only match as whole numbers.
+3. **`regex`**: matches patterns against the normalized end of the answer.
+
+Compute your expected answer with independent code before trusting it (see `tests/test_scenarios.py`).
 
 ---
 

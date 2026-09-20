@@ -2,9 +2,10 @@
 
 # ⚡ BenchRig
 
-**Cross-platform evaluation, hardware profiling, and benchmarking rig for local LLMs on Ollama, Microsoft Foundry Local and ONNX Runtime GenAI.**  
+**Cross-platform evaluation, hardware profiling, and benchmarking rig for local LLMs on Ollama, Microsoft Foundry Local, ONNX Runtime GenAI and Prism.**  
 Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
 
+[![Docs](https://img.shields.io/badge/docs-senssei.github.io%2Fbenchrig-blue.svg)](https://senssei.github.io/benchrig/)
 [![PyPI](https://img.shields.io/pypi/v/benchrig.svg)](https://pypi.org/project/benchrig/)
 [![CI](https://github.com/senssei/benchrig/actions/workflows/ci.yml/badge.svg)](https://github.com/senssei/benchrig/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -23,7 +24,7 @@ Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **
 
 Unlike generic perplexity benchmarks, this suite focuses on **practical developer workloads**:
 - **Executes code in isolated sandboxes** and checks deterministic unit test assertions.
-- **Direct Cross-Runtime & Engine Comparison**: Benchmarks `llama.cpp` against Microsoft's ONNX Runtime GenAI side-by-side on identical hardware.
+- **Direct Cross-Runtime & Engine Comparison**: Benchmarks `llama.cpp` against ONNX Runtime GenAI (via Microsoft Foundry Local, directly, or through a [Prism](https://github.com/senssei/prism-local) server) side-by-side on identical hardware.
 - **Analyzes reasoning models** (e.g. DeepSeek-R1) by inspecting `<think>` token patterns and extracting final answers.
 - **Measures true Time to First Token (TTFT)** via high-precision streaming probes.
 - **Monitors hardware saturation in real-time** (Metal buffer memory & GPU utilization on Apple Silicon; VRAM, power draw, and temperatures on NVIDIA).
@@ -35,7 +36,7 @@ Unlike generic perplexity benchmarks, this suite focuses on **practical develope
 ```mermaid
 flowchart TD
     subgraph CLI ["Benchmark CLI (benchrig/cli.py)"]
-        A["--check / --runtime (ollama|foundry|all)\n--models / --suite / --runs"] --> B[BenchmarkRunner]
+        A["--check / --runtime (ollama|foundry|onnx-gpu|prism|all)\n--models / --suite / --runs"] --> B[BenchmarkRunner]
     end
 
     subgraph Hardware ["Cross-Platform Hardware Abstraction (benchrig/core/hardware.py)"]
@@ -47,7 +48,8 @@ flowchart TD
     subgraph Runtimes ["Unified Runtime Clients (benchrig/core/client.py)"]
         B --> BaseClient["BaseRuntimeClient (base class)"]
         BaseClient --> Ollama["OllamaClient (llama.cpp)\n- http://localhost:11434"]
-        BaseClient --> Foundry["FoundryClient (ONNX Runtime GenAI)\n- http://localhost:5272/v1"]
+        BaseClient --> Foundry["FoundryClient (ONNX Runtime GenAI)\n- Foundry daemon, port from ~/.foundry/daemon.json"]
+        Foundry --> Prism["PrismClient (Prism server: ONNX GenAI + Ollama)\n- http://127.0.0.1:5272/v1"]
     end
 
     subgraph Execution ["Test Execution Engine (benchrig/core/runner.py)"]
@@ -74,7 +76,7 @@ flowchart TD
 
 | Feature | Description |
 | :--- | :--- |
-| 🚀 **Multi-Runtime Engine Support** | Evaluate models across **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (ONNX Runtime GenAI) with unified CLI and scoring. |
+| 🚀 **Multi-Runtime Engine Support** | Evaluate models across **Ollama** (`llama.cpp`), **Microsoft Foundry Local**, direct **ONNX Runtime GenAI** and a **Prism** server with unified CLI and scoring. See [Runtimes](docs/runtimes.md). |
 | ⏱ **High-Precision Timing** | Measures generation tokens/sec, prefill tokens/sec, and Time to First Token (TTFT) via nanosecond-precision streaming. |
 | 💻 **Automated Sandboxed Coding** | Automatically extracts code blocks from LLM responses, wraps them with test harnesses, and executes them in isolated subprocesses against test assertions. |
 | 🧠 **Reasoning & `<think>` Parser** | Detects whether models generate chain-of-thought blocks (`<think>...</think>`), calculates thinking token volume, and extracts final answers. |
@@ -86,18 +88,18 @@ flowchart TD
 
 ## 📚 Tutorials & Documentation
 
-Comprehensive step-by-step tutorials and engineering deep dives are available in [`docs/`](docs/README.md):
+Comprehensive step-by-step tutorials and engineering deep dives are available in [`docs/`](docs/index.md):
 
 ### 🚀 Step-by-Step Hands-On Tutorials:
-1. [**Tutorial 1: Quickstart Guide**](docs/tutorials/01_QUICKSTART_GUIDE.md) – Zero to benchmark in 5 minutes across macOS and Linux/WSL2.
-2. [**Tutorial 2: Foundry GPU Setup (WSL2 / Linux)**](docs/tutorials/02_FOUNDRY_GPU_SETUP.md) – Complete guide for NVIDIA GPU acceleration on Microsoft Foundry Local (Cache Injection & Direct ONNX GenAI).
-3. [**Tutorial 3: Fair 1:1 Cross-Engine Benchmarking**](docs/tutorials/03_CROSS_ENGINE_BENCHMARKING.md) – Standardizing parameters, cached baseline evaluation (`--baseline`), and scorecards.
-4. [**Tutorial 4: Authoring Custom Benchmark Scenarios**](docs/tutorials/04_CUSTOM_SCENARIO_AUTHORING.md) – Designing deterministic coding challenges, reasoning puzzles, and test harnesses.
+1. [**Tutorial 1: Quickstart Guide**](docs/tutorials/quickstart.md) – Zero to benchmark in 5 minutes across macOS and Linux/WSL2.
+2. [**Tutorial 2: Foundry GPU Setup (WSL2 / Linux)**](docs/tutorials/foundry-gpu-setup.md) – Complete guide for NVIDIA GPU acceleration on Microsoft Foundry Local (Cache Injection & Direct ONNX GenAI).
+3. [**Tutorial 3: Fair 1:1 Cross-Engine Benchmarking**](docs/tutorials/cross-engine-benchmarking.md) – Standardizing parameters, cached baseline evaluation (`--baseline`), and scorecards.
+4. [**Tutorial 4: Authoring Custom Benchmark Scenarios**](docs/tutorials/custom-scenarios.md) – Designing deterministic coding challenges, reasoning puzzles, and test harnesses.
 
 ### 📖 Technical Documentation Guides:
-- [**System Architecture & Design**](docs/ARCHITECTURE.md) | [**CLI Reference & Options**](docs/CLI_USAGE.md) | [**Configuration Reference**](docs/CONFIGURATION.md)
-- [**Foundry Local, CUDA & TensorRT Guide**](docs/FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md) | [**Hardware Telemetry**](docs/HARDWARE_TELEMETRY.md)
-- [**Benchmark Suites**](docs/BENCHMARK_SUITES.md) | [**Developer & Contributing Guide**](docs/DEVELOPER_GUIDE.md)
+- [**System Architecture & Design**](docs/architecture.md) | [**CLI Reference & Options**](docs/cli.md) | [**Configuration Reference**](docs/configuration.md)
+- [**Foundry Local, CUDA & TensorRT Guide**](docs/foundry-wsl-cuda-tensorrt.md) | [**Hardware Telemetry**](docs/hardware-telemetry.md)
+- [**Benchmark Suites**](docs/benchmark-suites.md) | [**Developer & Contributing Guide**](docs/development.md)
 
 ---
 
@@ -154,7 +156,7 @@ benchrig --check
 ## 💻 CLI Usage & Examples
 
 ### 1. Diagnostic Environment Check
-Verifies Ollama & MS Foundry Server connectivity, lists installed models across runtimes, and displays detected hardware:
+Verifies Ollama, MS Foundry, direct ONNX and Prism connectivity, lists installed models across runtimes, and displays detected hardware:
 ```bash
 benchrig --check
 ```
@@ -170,7 +172,14 @@ benchrig --models ollama:qwen2.5-coder:7b,foundry:phi-4
 
 # Benchmark exclusively on Microsoft Foundry Server:
 benchrig --runtime foundry --models phi-4,qwen2.5-coder-7b
+
+# Benchmark ONNX models through a Prism server (`pip install prism-local && prism serve`):
+benchrig --runtime prism --models prism:phi-4-mini
 ```
+
+Each result records the engine that served the model and, for Prism, the device it ran on (`cuda` or `cpu`). Prism's default
+`--device auto` runs ONNX models on CUDA even when the model name says `generic-cpu`; start `prism serve --device cpu|cuda`
+when the comparison depends on it. See [Runtimes](docs/runtimes.md#prism).
 
 ### 3. Benchmark Specific Models
 ```bash
@@ -188,11 +197,12 @@ benchrig --models llama3.1:8b --suite context
 ```
 
 ### 5. Pull / Acquire Recommended Models
-Downloads missing standard models from the respective Ollama or MS Foundry catalog:
+Downloads missing standard models from the respective Ollama, MS Foundry or Prism (`prism pull`) catalog:
 ```bash
 benchrig --pull-recommended
 # Or specify runtime:
 benchrig --runtime foundry --pull-recommended
+benchrig --runtime prism --pull-recommended
 ```
 
 ---
@@ -217,9 +227,15 @@ foundry:
   warmup: true
   unload_after_test: true
 
+prism:
+  base_url: "http://127.0.0.1:5272/v1"  # Prism server (`prism serve`); key via $PRISM_API_KEY
+  timeout_sec: 180
+  warmup: true
+  unload_after_test: false              # Prism loads models on demand
+
 benchmark:
   default_runs: 1
-  default_runtime: "ollama"  # "ollama", "foundry", or "all"
+  default_runtime: "ollama"  # "ollama", "foundry", "onnx-gpu", "prism" or "all"
   composite_weights:
     coding: 0.40           # 40% automated unit tests pass rate
     reasoning: 0.30        # 30% reasoning & logic ground truth
@@ -256,14 +272,15 @@ Detailed architecture, configuration guides, benchmark specifications, and opera
 
 | Document | Description |
 | :--- | :--- |
-| 🏛 [**System Architecture**](docs/ARCHITECTURE.md) | Deep dive into the Hardware Abstraction Layer (HAL), Runtime Abstraction Layer (RAL), sandbox isolation, and reporting pipeline. |
-| 🚀 [**WSL2 CUDA & TensorRT Guide**](docs/FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md) | Complete guide to configuring Microsoft Foundry Local with NVIDIA CUDA and TensorRT acceleration on WSL2. |
-| ⚙️ [**Configuration Reference**](docs/CONFIGURATION.md) | Full reference for `config.yaml`, environment variables (`OLLAMA_HOST`, `FOUNDRY_BASE_URL`), and dynamic port discovery. |
-| 🧪 [**Benchmark Suites Mechanics**](docs/BENCHMARK_SUITES.md) | Evaluation methodology for Speed, Coding, Reasoning, Polish NLP, and Context Scaling suites. |
-| 💻 [**CLI Usage & Recipes**](docs/CLI_USAGE.md) | Command-line parameters, scenario filtering, cross-engine flags, and automation scripts. |
-| 📊 [**Hardware Telemetry & Profiling**](docs/HARDWARE_TELEMETRY.md) | Real-time GPU VRAM, compute load, Apple Silicon UMA memory, power draw, and temperature sampling. |
-| 📝 [**Scenario Authoring Guide**](docs/SCENARIOS_GUIDE.md) | Schema reference and instructions for creating custom coding, reasoning, and context scaling scenarios. |
-| 👩‍💻 [**Developer & Contributing Guide**](docs/DEVELOPER_GUIDE.md) | Guide for adding runtime clients (`BaseRuntimeClient`), running test suites, and adhering to sandbox security. |
+| 🏛 [**System Architecture**](docs/architecture.md) | Deep dive into the Hardware Abstraction Layer (HAL), Runtime Abstraction Layer (RAL), sandbox isolation, and reporting pipeline. |
+| 🚀 [**WSL2 CUDA & TensorRT Guide**](docs/foundry-wsl-cuda-tensorrt.md) | Complete guide to configuring Microsoft Foundry Local with NVIDIA CUDA and TensorRT acceleration on WSL2. |
+| 🧭 [**Runtimes**](docs/runtimes.md) | The four runtimes (Ollama, Foundry Local, direct ONNX, Prism): how BenchRig connects to each, model prefixes, and how to read the engine and device in results. |
+| ⚙️ [**Configuration Reference**](docs/configuration.md) | Full reference for `config.yaml`, environment variables (`OLLAMA_HOST`, `FOUNDRY_BASE_URL`), and dynamic port discovery. |
+| 🧪 [**Benchmark Suites Mechanics**](docs/benchmark-suites.md) | Evaluation methodology for Speed, Coding, Reasoning, Polish NLP, and Context Scaling suites. |
+| 💻 [**CLI Usage & Recipes**](docs/cli.md) | Command-line parameters, scenario filtering, cross-engine flags, and automation scripts. |
+| 📊 [**Hardware Telemetry & Profiling**](docs/hardware-telemetry.md) | Real-time GPU VRAM, compute load, Apple Silicon UMA memory, power draw, and temperature sampling. |
+| 📝 [**Scenario Authoring Guide**](docs/scenarios.md) | Schema reference and instructions for creating custom coding, reasoning, and context scaling scenarios. |
+| 👩‍💻 [**Developer & Contributing Guide**](docs/development.md) | Guide for adding runtime clients (`BaseRuntimeClient`), running test suites, and adhering to sandbox security. |
 
 ---
 
@@ -286,19 +303,19 @@ benchrig/
 ├── .github/workflows/ci.yml  # CI: ruff lint/format check + pytest (Python 3.10-3.13, wheel smoke test)
 ├── docs/                     # Comprehensive documentation guides (guides + 4 tutorials)
 │   ├── README.md             # Documentation & tutorials index
-│   ├── ARCHITECTURE.md
-│   ├── BENCHMARK_SUITES.md
-│   ├── CLI_USAGE.md
-│   ├── CONFIGURATION.md
-│   ├── DEVELOPER_GUIDE.md
-│   ├── FOUNDRY_WSL_CUDA_TENSORRT_GUIDE.md
-│   ├── HARDWARE_TELEMETRY.md
-│   ├── SCENARIOS_GUIDE.md
+│   ├── architecture.md
+│   ├── benchmark-suites.md
+│   ├── cli.md
+│   ├── configuration.md
+│   ├── development.md
+│   ├── foundry-wsl-cuda-tensorrt.md
+│   ├── hardware-telemetry.md
+│   ├── scenarios.md
 │   └── tutorials/            # Hands-on step-by-step tutorials
-│       ├── 01_QUICKSTART_GUIDE.md
-│       ├── 02_FOUNDRY_GPU_SETUP.md
-│       ├── 03_CROSS_ENGINE_BENCHMARKING.md
-│       └── 04_CUSTOM_SCENARIO_AUTHORING.md
+│       ├── quickstart.md
+│       ├── foundry-gpu-setup.md
+│       ├── cross-engine-benchmarking.md
+│       └── custom-scenarios.md
 ├── examples/
 │   ├── calculator.py         # Sample module for test generation benchmarks
 │   └── run_onnx_gpu.py       # Standalone direct ONNX GenAI CUDA runner

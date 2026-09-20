@@ -9,6 +9,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import site
 import sys
 import time
@@ -22,6 +23,7 @@ from benchrig import __version__
 from benchrig.core.client import BaseRuntimeClient, create_runtime_client
 from benchrig.core.hardware import get_system_specs
 from benchrig.core.runner import BenchmarkRunner
+from benchrig.core.runtimes import runtime_label
 from benchrig.reporting.display import (
     console,
     display_1to1_comparison,
@@ -50,7 +52,7 @@ SUITES: dict[str, tuple[str, str, str]] = {
     "context": ("context_scaling.json", "run_context_suite", "Running context scaling suite (512 - 8k tokens)..."),
 }
 
-RUNTIME_CHOICES = ["ollama", "foundry", "onnx-gpu", "all"]
+RUNTIME_CHOICES = ["ollama", "foundry", "onnx-gpu", "prism", "all"]
 
 # Accepted `runtime:model` prefixes, normalized to canonical runtime names.
 RUNTIME_PREFIXES = {
@@ -59,6 +61,8 @@ RUNTIME_PREFIXES = {
     "ms-foundry": "foundry",
     "onnx-gpu": "onnx-gpu",
     "onnx": "onnx-gpu",
+    "prism": "prism",
+    "prism-local": "prism",
 }
 
 
@@ -158,6 +162,18 @@ def _check_foundry(client: BaseRuntimeClient | None) -> None:
         console.print(f"  [yellow]⚠ MS Foundry Server REST API:[/] Unreachable at {url}")
 
 
+def _check_prism(client: BaseRuntimeClient | None) -> None:
+    if client and client.is_reachable():
+        models = client.list_installed_models()
+        console.print(f"  [green]✔ Prism Server REST API:[/] Available ({client.get_version()}) at {client.base_url}")
+        console.print(f"     Available Prism models ({len(models)}):")
+        for m in models:
+            console.print(f"     • [green]{m.get('name', ''):<44}[/] ({m.get('details', {}).get('engine', 'N/A')})")
+    else:
+        url = client.base_url if client else "http://127.0.0.1:5272/v1"
+        console.print(f"  [yellow]ℹ Prism Server:[/] Not running at {url} (pip install prism-local && prism serve)")
+
+
 def _check_onnx(client: BaseRuntimeClient | None) -> None:
     if client and client.is_reachable():
         cuda_ok = getattr(client, "is_cuda_available", lambda: False)()
@@ -201,6 +217,7 @@ def run_system_check(clients: dict[str, BaseRuntimeClient]) -> None:
     _check_ollama(clients.get("ollama"))
     _check_foundry(clients.get("foundry"))
     _check_onnx(clients.get("onnx-gpu"))
+    _check_prism(clients.get("prism"))
     _check_accelerator(specs)
 
 
@@ -322,11 +339,16 @@ def resolve_target_models(
     targets: list[tuple[str, str]] = []
 
     if raw_models_arg in ("installed", "all"):
-        runtimes = ["ollama", "foundry", "onnx-gpu"] if selected_runtime == "all" else [selected_runtime]
+        runtimes = ["ollama", "foundry", "onnx-gpu", "prism"] if selected_runtime == "all" else [selected_runtime]
         for rt in runtimes:
             client = clients.get(rt)
             if client and client.is_reachable():
-                targets.extend((rt, name) for name in _installed_names(client) if name)
+                names = _installed_names(client)
+                if rt == "prism":
+                    # Prism also proxies Ollama models as `ollama:<name>`; those are benchmarked natively via the ollama
+                    # runtime (ask for them explicitly with `prism:ollama:<name>` to measure the proxy).
+                    names = [n for n in names if not str(n).lower().startswith("ollama:")]
+                targets.extend((rt, name) for name in names if name)
         return targets
 
     for item in (i.strip() for i in raw_models_arg.split(",")):
@@ -339,7 +361,7 @@ def resolve_target_models(
         elif selected_runtime == "all":
             # Unprefixed model with runtime 'all': use every runtime that already has it installed.
             found = []
-            for rt in ("onnx-gpu", "foundry", "ollama"):
+            for rt in ("onnx-gpu", "prism", "foundry", "ollama"):
                 client = clients.get(rt)
                 if client and client.is_reachable():
                     if any(item == inst or item in str(inst) for inst in _installed_names(client)):
@@ -369,6 +391,8 @@ def resolve_pair_targets(
     if has_baseline:
         if selected_runtime == "onnx-gpu":
             targets = [("onnx-gpu", pair.get("onnx", pair["foundry"]))]
+        elif selected_runtime == "prism":
+            targets = [("prism", pair.get("prism", pair.get("onnx", pair["foundry"])))]
         else:
             targets = [("foundry", pair["foundry"])]
     else:
@@ -381,25 +405,54 @@ def resolve_pair_targets(
 # ---------------------------------------------------------------------------
 
 
+def _model_key(name: object) -> str:
+    """Comparable form of a model name: no `ollama:` proxy prefix, no `:latest`, only lowercase letters and digits.
+
+    `qwen2.5-coder:7b` and `qwen2.5-coder-7b-instruct-generic-cpu` share the key `qwen25coder7b`, while the size tag
+    that tells 3b from 14b is kept.
+    """
+    text = str(name).lower()
+    text = text.removeprefix("ollama:").removesuffix(":latest")
+    return re.sub(r"[^a-z0-9]", "", text)
+
+
+def select_pair(scorecards: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Pick the two scorecards a 1:1 report compares: the first non-Ollama one and its Ollama counterpart.
+
+    The counterpart is the Ollama scorecard whose model name is contained in the other's (or the reverse), the longest match
+    winning; with no match it falls back to the first Ollama scorecard. Before this, the first Ollama scorecard in the list
+    was used, which was only the right model when it happened to come first.
+    """
+    sc_other = next((sc for sc in scorecards if not is_ollama(sc)), scorecards[1])
+    other_key = _model_key(sc_other.get("model"))
+    candidates = [sc for sc in scorecards if is_ollama(sc)]
+    matches = [
+        sc for sc in candidates if (key := _model_key(sc.get("model"))) and (key in other_key or other_key in key)
+    ]
+    sc_ollama = (
+        max(matches, key=lambda sc: len(_model_key(sc.get("model")))) if matches else (candidates or scorecards)[0]
+    )
+    return sc_ollama, sc_other
+
+
+def records_for(results: list[dict[str, Any]], scorecard: dict[str, Any]) -> list[dict[str, Any]]:
+    """The result records of one model on one runtime (a run can hold many models, and several runtimes for one name)."""
+    runtime = scorecard.get("runtime", "ollama")
+    return [r for r in results if r.get("model") == scorecard.get("model") and r.get("runtime", "ollama") == runtime]
+
+
 def show_1to1_comparison(
     scorecards: list[dict[str, Any]],
     results: list[dict[str, Any]],
     specs: dict[str, Any],
     output_dir: str,
 ) -> None:
-    """Display and write the head-to-head report between the first Ollama and non-Ollama scorecards."""
-    sc_ollama = next((sc for sc in scorecards if is_ollama(sc)), scorecards[0])
-    sc_other = next((sc for sc in scorecards if not is_ollama(sc)), scorecards[1])
+    """Display and write the head-to-head report between a non-Ollama scorecard and its Ollama counterpart."""
+    sc_ollama, sc_other = select_pair(scorecards)
+    res_ollama = records_for(results, sc_ollama)
+    res_other = records_for(results, sc_other)
 
-    res_ollama = [r for r in results if r.get("model") == sc_ollama.get("model") or is_ollama(r)]
-    other_runtime = str(sc_other.get("runtime", "")).lower()
-    res_other = [
-        r
-        for r in results
-        if r.get("model") == sc_other.get("model") or str(r.get("runtime", "")).lower() == other_runtime
-    ]
-
-    other_label = "ONNX GPU" if "onnx" in other_runtime else "MS Foundry"
+    other_label = runtime_label(sc_other.get("runtime"), default=str(sc_other.get("runtime", "other")))
     pair_title = f"{sc_ollama.get('model')} (Ollama) vs {sc_other.get('model')} ({other_label})"
     display_1to1_comparison(sc_ollama, sc_other, res_ollama, res_other, pair_name=pair_title)
 
@@ -453,16 +506,22 @@ def evaluate_model(
     console.print(
         f"\n[bold yellow]━━━ [{client.display_name}: {model}] Starting evaluation ({client.engine_name}) ━━━[/]"
     )
+    runner = BenchmarkRunner(client=client, config=config)
+    # Before the model is loaded, so reports can separate the model's memory from whatever else uses the GPU.
+    baseline_mb = runner.measure_vram_baseline()
+    if baseline_mb > 0:
+        console.print(f"  [dim]GPU memory in use before loading: {baseline_mb:.0f} MB[/]")
+
     console.print(f"  [dim]Ensuring model {model} is loaded ({client.display_name})...[/]")
     client.load_model(model)
 
-    runner = BenchmarkRunner(client=client, config=config)
     rt_config = config.get(runtime_name, {})
     if rt_config.get("warmup", True):
         runner.warmup(model)
 
     results: list[dict[str, Any]] = []
     for run_idx in range(runs):
+        runner.run_index = run_idx
         if runs > 1:
             console.print(f"  [dim]Run {run_idx + 1}/{runs}[/]")
         for suite in suites:
@@ -563,6 +622,8 @@ def run_benchmarks(
                 "[dim]Hint: Direct ONNX GenAI is not active in this Python environment. "
                 'Try: pip install "benchrig[onnx-gpu]"[/]'
             )
+        elif selected_runtime == "prism":
+            console.print("[dim]Hint: Start the Prism server first: pip install prism-local && prism serve[/]")
         else:
             console.print(
                 "[dim]Hint: If testing MS Foundry, ensure Foundry Local server is running ('foundry service start').[/]"
@@ -678,7 +739,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime",
         default=None,
         choices=RUNTIME_CHOICES,
-        help="Inference runtime selection (ollama, foundry, onnx-gpu, all; default: from config or ollama)",
+        help="Inference runtime selection (ollama, foundry, onnx-gpu, prism, all; default: from config or ollama)",
     )
     parser.add_argument(
         "--check", action="store_true", help="Run environment diagnostics across runtimes and accelerators"
@@ -725,7 +786,7 @@ def main() -> None:
     config = load_config(args.config)
 
     clients: dict[str, BaseRuntimeClient] = {
-        name: create_runtime_client(name, config) for name in ("ollama", "foundry", "onnx-gpu")
+        name: create_runtime_client(name, config) for name in ("ollama", "foundry", "onnx-gpu", "prism")
     }
 
     if args.compare:

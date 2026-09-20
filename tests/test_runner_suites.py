@@ -66,6 +66,21 @@ class RunnerSuiteTests(unittest.TestCase):
         self.assertEqual(rec["eval_count"], 10)
         self.assertEqual(rec["total_time_sec"], 1.0)
 
+    def test_record_uses_engine_and_device_reported_with_the_response(self):
+        """A multi-engine server (Prism) reports per model which engine and device served it; reports must show that."""
+        original = self.client.generate
+
+        def generate(*args, **kwargs):
+            return {**original(*args, **kwargs), "engine": "Ollama (llama.cpp)", "device": "cuda"}
+
+        self.client.generate = generate
+        (rec,) = self.runner.run_speed_suite("m", [{"id": "s1", "name": "Speed", "prompt": "hi"}])
+        self.assertEqual((rec["engine"], rec["device"]), ("Ollama (llama.cpp)", "cuda"))
+
+    def test_record_omits_device_when_not_reported(self):
+        (rec,) = self.runner.run_speed_suite("m", [{"id": "s1", "name": "Speed", "prompt": "hi"}])
+        self.assertNotIn("device", rec)
+
     def test_coding_suite_scores_sandbox_result(self):
         self.client.response = "```python\ndef add(a, b):\n    return a + b\n```"
         scenario = {

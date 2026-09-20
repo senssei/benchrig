@@ -5,6 +5,15 @@ ollama:
   unload_after_test: true
   default_num_ctx: 4096
 
+# Prism (prism-local): OpenAI-compatible server in front of ONNX Runtime GenAI (CUDA/CPU) and Ollama.
+# Start it with `prism serve`. Set $PRISM_API_KEY (or api_key) if the server was started with --api-key.
+prism:
+  base_url: "http://127.0.0.1:5272/v1"
+  timeout_sec: 180
+  warmup: true
+  unload_after_test: false   # Prism loads models on demand and has nothing to unload
+  default_max_tokens: 4096
+
 foundry:
   base_url: "http://localhost:5272/v1"
   auto_detect_port: true
@@ -24,20 +33,28 @@ onnx:
 benchmark:
   default_runs: 1
   default_runtime: "ollama"  # "ollama", "foundry", or "all"
+  # Models that think (`<think>...</think>`) before answering need a bigger token budget, or the answer is cut off.
+  # Names are matched as case-insensitive substrings; `num_predict` is multiplied for the coding, reasoning and polish suites.
+  thinking_models: ["deepseek-r1", "qwq", "magistral", "qwen3"]
+  thinking_token_multiplier: 12
+  # Ollama's `think` option per suite for models that can think: true, false, or omit for the model's own default.
+  # Speed and context default to false so throughput and prompt-processing latency are not mixed with thinking time.
+  think:
+    speed: false
+    context: false
   composite_weights:
     coding: 0.40
     reasoning: 0.30
     performance: 0.30
 
 # 1:1 Execution Alignment Parameters for Fair Cross-Engine Comparison
+# Default sampling for every request, on every runtime, so 1:1 comparisons are fair. A scenario's own options win.
+# The seed advances with the repetition (`--runs N`): seed + run index.
 execution_alignment_1to1:
   context_tokens: 4096
   temperature: 0.1
   top_p: 0.9
   seed: 42
-  warmup_runs: 1
-  timeout_sec: 180
-  unload_after_test: true
 
 hardware:
   sample_interval_sec: 0.15
@@ -84,6 +101,8 @@ recommended_models:
     - "llama3.1:8b"
     - "mistral:7b"
     - "phi3:mini"
+  prism:
+    - "phi-4-mini"
   foundry:
     - "phi-3.5-mini"
     - "qwen3-0.6b"

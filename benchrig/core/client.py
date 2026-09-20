@@ -18,6 +18,11 @@ class BaseRuntimeClient:
     name: str = "base"
     display_name: str = "Base Runtime"
     engine_name: str = "Unknown Engine"
+    # Where `prompt_tok_per_sec` comes from: "server" (the engine reports its own prompt evaluation time) or
+    # "client_ttft" (prompt tokens divided by the client-side time to first token, which includes request overhead).
+    prefill_source: str = "client_ttft"
+    # True if a request whose `num_ctx` differs from the loaded one makes the server reload the model (Ollama).
+    reloads_on_context_change: bool = False
 
     def __init__(self, base_url: str = "", timeout_sec: int = 180):
         self.base_url = base_url.rstrip("/")
@@ -34,6 +39,17 @@ class BaseRuntimeClient:
     def list_installed_models(self) -> list[dict[str, Any]]:
         """Return list of locally installed / cached models with metadata."""
         raise NotImplementedError
+
+    def supports_thinking(self, model: str) -> bool:
+        """Whether Ollama lists the `thinking` capability for `model` (cached; `think` is rejected for other models)."""
+        if model not in self._thinking_support:
+            try:
+                r = requests.post(f"{self.base_url}/api/show", json={"model": model}, timeout=5)
+                capabilities = r.json().get("capabilities", []) if r.status_code == 200 else []
+            except Exception:
+                capabilities = []
+            self._thinking_support[model] = "thinking" in capabilities
+        return self._thinking_support[model]
 
     def get_running_models(self) -> list[dict[str, Any]]:
         """Return models currently loaded in memory/accelerator."""
@@ -84,6 +100,8 @@ class OllamaClient(BaseRuntimeClient):
     name: str = "ollama"
     display_name: str = "Ollama"
     engine_name: str = "llama.cpp"
+    prefill_source = "server"
+    reloads_on_context_change = True
 
     def __init__(
         self,
@@ -93,6 +111,7 @@ class OllamaClient(BaseRuntimeClient):
     ):
         super().__init__(base_url=base_url, timeout_sec=timeout_sec)
         self.default_num_ctx = default_num_ctx
+        self._thinking_support: dict[str, bool] = {}
 
     def is_reachable(self) -> bool:
         """Check if Ollama server is reachable."""
@@ -195,14 +214,18 @@ class OllamaClient(BaseRuntimeClient):
         if system:
             payload["system"] = system
 
-        merged_options = {"num_ctx": self.default_num_ctx}
-        if options:
-            merged_options.update(options)
+        options = dict(options or {})
+        think = options.pop("think", None)  # a top-level request field, not a model option
+        merged_options = {"num_ctx": self.default_num_ctx, **options}
         payload["options"] = merged_options
+        if think is not None and self.supports_thinking(model):
+            payload["think"] = bool(think)
 
         start_wall_time = time.perf_counter()
-        first_token_time: float | None = None
+        first_token_time: float | None = None  # first token of any kind: thinking or answer
+        first_answer_time: float | None = None
         collected_response: list[str] = []
+        thinking_chars = 0
         final_metrics: dict[str, Any] = {}
 
         try:
@@ -220,10 +243,16 @@ class OllamaClient(BaseRuntimeClient):
                     if not line:
                         continue
                     chunk = json.loads(line.decode("utf-8"))
+                    thinking = chunk.get("thinking", "")
                     text = chunk.get("response", "")
-                    if text:
+                    if thinking:
                         if first_token_time is None:
                             first_token_time = time.perf_counter()
+                        thinking_chars += len(thinking)
+                    if text:
+                        now = time.perf_counter()
+                        first_token_time = first_token_time or now
+                        first_answer_time = first_answer_time or now
                         collected_response.append(text)
 
                     if chunk.get("done", False):
@@ -240,6 +269,7 @@ class OllamaClient(BaseRuntimeClient):
                 r.raise_for_status()
                 final_metrics = r.json()
                 collected_response.append(final_metrics.get("response", ""))
+                thinking_chars = len(final_metrics.get("thinking") or "")
 
             end_wall_time = time.perf_counter()
 
@@ -260,9 +290,12 @@ class OllamaClient(BaseRuntimeClient):
         prompt_tok_sec = (prompt_eval_count / (prompt_eval_dur_ns / 1e9)) if prompt_eval_dur_ns > 0 else 0.0
         eval_tok_sec = (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else 0.0
 
+        # Time to the first token of any kind, so a thinking model's latency is not its thinking time; the first *answer*
+        # token is reported separately. With no token at all (non-streaming) the engine's prompt evaluation time stands in.
         ttft_sec = (
             round(first_token_time - start_wall_time, 3) if first_token_time else round(prompt_eval_dur_ns / 1e9, 3)
         )
+        answer_ttft_sec = round(first_answer_time - start_wall_time, 3) if first_answer_time else None
 
         return {
             "success": True,
@@ -274,7 +307,11 @@ class OllamaClient(BaseRuntimeClient):
             "eval_tok_per_sec": round(eval_tok_sec, 2),
             "prompt_eval_count": prompt_eval_count,
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
+            "finish_reason": final_metrics.get("done_reason"),
             "ttft_sec": ttft_sec,
+            "answer_ttft_sec": answer_ttft_sec,
+            "thinking_chars": thinking_chars,
+            "think": payload.get("think"),
             "load_time_sec": round(load_dur_ns / 1e9, 3),
             "total_time_sec": round(
                 total_dur_ns / 1e9 if total_dur_ns > 0 else (end_wall_time - start_wall_time),
@@ -306,8 +343,10 @@ class FoundryClient(BaseRuntimeClient):
         auto_detect_port: bool = True,
         cli_path: str = "foundry",
         default_max_tokens: int = 4096,
+        api_key: str | None = None,
     ):
         super().__init__(base_url=base_url, timeout_sec=timeout_sec)
+        self.api_key = api_key
         self.auto_detect_port = auto_detect_port
         self.cli_path = cli_path
         self.default_max_tokens = default_max_tokens
@@ -315,6 +354,10 @@ class FoundryClient(BaseRuntimeClient):
         self._engines: dict[str, str] = {}  # model id -> engine reported by the server (`owned_by`)
         if self.auto_detect_port:
             self._discover_endpoint()
+
+    def _request_kwargs(self) -> dict[str, Any]:
+        """Extra `requests` arguments: a bearer token when the server requires an API key."""
+        return {"headers": {"Authorization": f"Bearer {self.api_key}"}} if self.api_key else {}
 
     def _discover_endpoint(self) -> str | None:
         """Attempt to discover active Foundry Local server port via daemon.json or CLI."""
@@ -374,7 +417,7 @@ class FoundryClient(BaseRuntimeClient):
 
         for url in urls_to_test:
             try:
-                r = requests.get(url, timeout=3)
+                r = requests.get(url, timeout=3, **self._request_kwargs())
                 if r.status_code in (200, 401, 403):
                     return True
             except Exception:
@@ -415,7 +458,7 @@ class FoundryClient(BaseRuntimeClient):
 
         # 1. Query REST API /models endpoint
         try:
-            r = requests.get(self._get_api_endpoint("models"), timeout=5)
+            r = requests.get(self._get_api_endpoint("models"), timeout=5, **self._request_kwargs())
             if r.status_code == 200:
                 data = r.json()
                 raw_models = data.get("data", []) if isinstance(data, dict) else data
@@ -621,6 +664,8 @@ class FoundryClient(BaseRuntimeClient):
         first_token_time: float | None = None
         collected_response: list[str] = []
         reported_usage: dict[str, Any] | None = None
+        reported_telemetry: dict[str, Any] | None = None  # e.g. Prism reports the device that ran the request
+        finish_reason: str | None = None  # "stop" or "length" (token budget exhausted)
         total_stream_chunks = 0
 
         endpoint = self._get_api_endpoint("chat/completions")
@@ -632,6 +677,7 @@ class FoundryClient(BaseRuntimeClient):
                     json=payload,
                     stream=True,
                     timeout=self.timeout_sec,
+                    **self._request_kwargs(),
                 )
             else:
                 p = dict(payload)
@@ -641,6 +687,7 @@ class FoundryClient(BaseRuntimeClient):
                     endpoint,
                     json=p,
                     timeout=self.timeout_sec,
+                    **self._request_kwargs(),
                 )
 
         try:
@@ -675,9 +722,12 @@ class FoundryClient(BaseRuntimeClient):
                     # Check usage in stream if returned
                     if "usage" in chunk and chunk["usage"]:
                         reported_usage = chunk["usage"]
+                    if isinstance(chunk.get("telemetry"), dict):
+                        reported_telemetry = chunk["telemetry"]
 
                     choices = chunk.get("choices", [])
                     if choices:
+                        finish_reason = choices[0].get("finish_reason") or finish_reason
                         delta = choices[0].get("delta", {})
                         content_piece = delta.get("content", "")
                         if content_piece:
@@ -688,9 +738,12 @@ class FoundryClient(BaseRuntimeClient):
                 data = r.json()
                 choices = data.get("choices", [])
                 if choices:
+                    finish_reason = choices[0].get("finish_reason") or finish_reason
                     content_piece = choices[0].get("message", {}).get("content", "")
                     collected_response.append(content_piece)
                 reported_usage = data.get("usage")
+                if isinstance(data.get("telemetry"), dict):
+                    reported_telemetry = data["telemetry"]
 
             end_wall_time = time.perf_counter()
 
@@ -731,6 +784,7 @@ class FoundryClient(BaseRuntimeClient):
             "runtime": self.name,
             "engine": self._engine_for(model),
             "response": response_text,
+            "finish_reason": finish_reason,
             "eval_count": eval_count,
             "eval_tok_per_sec": round(eval_tok_sec, 2),
             "prompt_eval_count": prompt_eval_count,
@@ -742,8 +796,103 @@ class FoundryClient(BaseRuntimeClient):
                 "total_time_sec": total_time_sec,
                 "stream_chunks": total_stream_chunks,
                 "reported_usage": reported_usage,
+                "telemetry": reported_telemetry,
             },
         }
+
+
+class PrismClient(FoundryClient):
+    """
+    Client for a Prism (`prism-local`) server: one OpenAI-compatible endpoint in front of ONNX Runtime GenAI (CUDA or CPU)
+    and Ollama models. The endpoint is always explicit (default `http://127.0.0.1:5272/v1`); nothing is auto-discovered and
+    the `foundry` CLI is never used.
+    """
+
+    name: str = "prism"
+    display_name: str = "Prism"
+    engine_name: str = "ONNX Runtime GenAI"
+    DEFAULT_BASE_URL = "http://127.0.0.1:5272/v1"
+
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_sec: int = 180,
+        default_max_tokens: int = 4096,
+        api_key: str | None = None,
+        cli_path: str = "prism",
+    ):
+        super().__init__(
+            base_url=base_url,
+            timeout_sec=timeout_sec,
+            auto_detect_port=False,
+            cli_path=cli_path,
+            default_max_tokens=default_max_tokens,
+            api_key=api_key or os.environ.get("PRISM_API_KEY"),
+        )
+
+    def _health(self) -> dict[str, Any]:
+        """Prism's public `/health` document ({} if the server is unreachable or is not Prism)."""
+        try:
+            r = requests.get(self._get_api_endpoint("health"), timeout=3, **self._request_kwargs())
+            if r.status_code == 200 and isinstance(r.json(), dict):
+                return r.json()
+        except Exception:
+            pass
+        return {}
+
+    def get_version(self) -> str:
+        """Prism has no version endpoint; report what `/health` says about the accelerator."""
+        health = self._health()
+        if not health:
+            return "Prism"
+        device = health.get("active_device")
+        return f"Prism (active device: {device})" if device else "Prism (idle)"
+
+    def generate(
+        self,
+        model: str,
+        prompt: str,
+        system: str | None = None,
+        options: dict[str, Any] | None = None,
+        measure_ttft: bool = True,
+    ) -> dict[str, Any]:
+        """Generate, then record the device that actually ran the request (never assume GPU vs CPU).
+
+        The device comes from the response's telemetry. For ONNX models served without telemetry (streaming) it falls back to
+        `/health`, which reports the ONNX engine's provider; that is not used for Ollama-served models, where it could be
+        stale state from an earlier ONNX model.
+        """
+        result = super().generate(model, prompt, system=system, options=options, measure_ttft=measure_ttft)
+        if result.get("success"):
+            telemetry = (result.get("raw_metrics") or {}).get("telemetry") or {}
+            device = telemetry.get("device")
+            engine = self._engine_for(model).lower()
+            if not device and "llama" not in engine and "ollama" not in engine:
+                device = self._health().get("active_device")
+            if device:
+                result["device"] = device
+        return result
+
+    def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:
+        """Download a model with `prism pull <model>` (needs the `prism` CLI on PATH)."""
+        prism_bin = shutil.which(self.cli_path)
+        if not prism_bin:
+            if stream_callback:
+                stream_callback({"status": "error", "error": "prism CLI not found in PATH (pip install prism-local)"})
+            return False
+        try:
+            if stream_callback:
+                stream_callback({"status": f"Downloading {model_name} via prism pull..."})
+            res = subprocess.run([prism_bin, "pull", model_name], capture_output=True, text=True, timeout=1800)
+        except (OSError, subprocess.SubprocessError) as e:
+            if stream_callback:
+                stream_callback({"status": "error", "error": str(e)})
+            return False
+        if stream_callback:
+            stream_callback(
+                {"status": "success"} if res.returncode == 0 else {"status": "error", "error": res.stderr.strip()}
+            )
+        return res.returncode == 0
 
 
 def create_runtime_client(runtime_name: str, config: dict[str, Any]) -> BaseRuntimeClient:
@@ -757,6 +906,16 @@ def create_runtime_client(runtime_name: str, config: dict[str, Any]) -> BaseRunt
         timeout = o_conf.get("timeout_sec", 300)
         max_tokens = o_conf.get("default_max_tokens", 4096)
         return OnnxGenAiClient(models_dir=models_dir, timeout_sec=timeout, default_max_tokens=max_tokens)
+
+    if runtime_name in ("prism", "prism-local", "prism_local"):
+        p_conf = config.get("prism", {})
+        return PrismClient(
+            base_url=p_conf.get("base_url", PrismClient.DEFAULT_BASE_URL),
+            timeout_sec=p_conf.get("timeout_sec", 180),
+            default_max_tokens=p_conf.get("default_max_tokens", 4096),
+            api_key=p_conf.get("api_key"),
+            cli_path=p_conf.get("cli_path", "prism"),
+        )
 
     if runtime_name in ("foundry", "ms-foundry", "ms_foundry", "onnx"):
         f_conf = config.get("foundry", {})

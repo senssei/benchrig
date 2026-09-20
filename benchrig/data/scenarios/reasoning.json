@@ -22,8 +22,7 @@
     "check_type": "regex",
     "expected_answer": "Box 1: Oranges",
     "accepted_patterns": [
-      "box 1.*orange.*box 2.*apple.*orange.*box 3.*apple",
-      "box 1: oranges.*box 2: apples and oranges.*box 3: apples"
+      "box 1 (?:(?!apples|oranges)\\w+ ){0,3}oranges box 2 (?:(?!apples|oranges)\\w+ ){0,3}(?:apples and oranges|oranges and apples) box 3 (?:(?!apples|oranges)\\w+ ){0,3}apples(?: (?!and )|$)"
     ]
   },
   {
@@ -37,5 +36,89 @@
     "check_type": "exact_or_contains",
     "expected_answer": "1/6",
     "accepted_patterns": ["1/6", "5/30", "0.1667", "0.167"]
+  },
+  {
+    "id": "reasoning_trains",
+    "name": "Two Trains Meeting Time",
+    "prompt": "Train A leaves city X at 08:15 and travels towards city Y at 72 km/h. Train B leaves city Y at 09:00 and travels towards city X on the same track at 90 km/h. The cities are 432 km apart. At what clock time do the trains meet? Think step by step. End with exactly one line in the form: Final answer: HH:MM",
+    "expected_answer": "11:20",
+    "accepted_patterns": [
+      "11[:.]20(?: ?a\\.?m)?"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_knights",
+    "name": "Knights and Knaves",
+    "prompt": "A, B and C are each either a knight (always tells the truth) or a knave (always lies). A says: \"B is a knave.\" B says: \"C is a knight.\" C says: \"A and B are different types.\" Determine who is a knight and who is a knave. Think step by step. End with exactly one line in the form: Final answer: A is a knight/knave, B is a knight/knave, C is a knight/knave",
+    "expected_answer": "A is a knave, B is a knight, C is a knight",
+    "accepted_patterns": [
+      "a\\W*(?:is\\W*)?(?:a\\W*)?knave\\W+b\\W*(?:is\\W*)?(?:a\\W*)?knight\\W+c\\W*(?:is\\W*)?(?:a\\W*)?knight"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_distinct_digits",
+    "name": "Distinct-Digit Multiples of Five",
+    "prompt": "How many four-digit numbers (from 1000 to 9999) have four distinct digits and are divisible by 5? Think step by step. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "952",
+    "accepted_patterns": [
+      "952"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_recurrence",
+    "name": "Linear Recurrence",
+    "prompt": "A sequence is defined by a1 = 3 and a(n+1) = 2*a(n) - 1 for every n >= 1. What is a10? Think step by step. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "1025",
+    "accepted_patterns": [
+      "1025"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_price_chain",
+    "name": "Chained Percentage Changes",
+    "prompt": "An item costs 80 euros. Its price rises by 25%, then the new price falls by 20%, then the latest price rises by 10%. What is the final price in euros? Think step by step. End with exactly one line in the form: Final answer: <number>",
+    "expected_answer": "88",
+    "accepted_patterns": [
+      "€?88(?:\\.0+)?(?: ?(?:euros?|eur|€))?"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_letter_count",
+    "name": "Letter Counting",
+    "prompt": "How many times does the letter \"r\" appear in the text: strawberry raspberry blueberry? Count letter by letter, word by word. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "8",
+    "accepted_patterns": [
+      "8"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
   }
 ]
