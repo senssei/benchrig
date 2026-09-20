@@ -40,3 +40,15 @@ MODEL_MEMORY_NOTE = (
     "Peak memory is the whole GPU (`nvidia-smi memory.used`, including other processes). Model memory is the peak minus the "
     "GPU memory in use before the model was loaded."
 )
+
+DIRTY_BASELINE_NOTE = (
+    "Model memory is shown as - for a model whose baseline was taken while another model was still loaded (Prism keeps one "
+    "model loaded and cannot unload it): peak minus that baseline would understate the model. Restart the server before "
+    "benchmarking a model to get the figure."
+)
+
+ESTIMATED_USAGE_NOTE = (
+    "Token counts marked as estimated come from a server that reported no `usage` (prompt tokens are guessed from the word count, "
+    "generated tokens are the streamed chunks), so prefill and decode speeds for it are approximate. Prism sends `usage` when "
+    "started from a version that supports `stream_options.include_usage`."
+)

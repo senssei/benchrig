@@ -553,6 +553,86 @@ class RepetitionTests(RunnerTestCase):
         self.assertIn("composite 1.0-2.0", line)
 
 
+class DirtyBaselineTests(RunnerTestCase):
+    """A runtime that still holds a model when the baseline is read would make peak minus baseline too small."""
+
+    def baseline_with(self, loaded):
+        client = FakeClient()
+        client.get_running_models = lambda: loaded
+        runner = self.runner(client)
+        provider = MagicMock()
+        provider.read_gpu.return_value = (5000.0, 12000.0, 0.0, 0.0, 0.0)
+        with patch.object(runner, "_create_sampler", return_value=MagicMock(provider=provider)):
+            runner.measure_vram_baseline()
+        return runner
+
+    def test_a_loaded_model_at_baseline_time_marks_the_baseline_dirty(self):
+        self.assertTrue(self.baseline_with([{"name": "previous-model"}]).vram_baseline_dirty)
+
+    def test_no_loaded_model_means_a_clean_baseline(self):
+        self.assertFalse(self.baseline_with([]).vram_baseline_dirty)
+
+    def test_a_runtime_that_cannot_list_models_is_not_penalised(self):
+        client = FakeClient()
+
+        def broken():
+            raise OSError("down")
+
+        client.get_running_models = broken
+        runner = self.runner(client)
+        provider = MagicMock()
+        provider.read_gpu.return_value = (5000.0, 12000.0, 0.0, 0.0, 0.0)
+        with patch.object(runner, "_create_sampler", return_value=MagicMock(provider=provider)):
+            runner.measure_vram_baseline()
+        self.assertFalse(runner.vram_baseline_dirty)
+
+    def test_a_dirty_baseline_gives_no_model_memory_figure(self):
+        runner = self.baseline_with([{"name": "previous-model"}])
+        sampler = MagicMock()
+        sampler.stop.return_value = {"vram_peak_mb": 9000.0, "vram_total_mb": 12000.0}
+        with patch.object(runner, "_create_sampler", return_value=sampler):
+            recs = runner.run_speed_suite("m", [{"id": "s", "name": "S", "prompt": "x"}])
+        self.assertTrue(recs[0]["hardware"]["vram_baseline_dirty"])
+        self.assertNotIn("vram_model_mb", recs[0]["hardware"])
+        card = runner.compute_model_scorecard("m", recs)
+        self.assertIsNone(card["vram_model_mb"])
+        self.assertTrue(card["vram_baseline_dirty"])
+        self.assertEqual(card["peak_vram_mb"], 9000.0)  # the whole-GPU peak is still reported
+
+    def test_a_clean_baseline_still_gives_the_figure(self):
+        runner = self.baseline_with([])
+        sampler = MagicMock()
+        sampler.stop.return_value = {"vram_peak_mb": 9000.0, "vram_total_mb": 12000.0}
+        with patch.object(runner, "_create_sampler", return_value=sampler):
+            recs = runner.run_speed_suite("m", [{"id": "s", "name": "S", "prompt": "x"}])
+        card = runner.compute_model_scorecard("m", recs)
+        self.assertEqual(card["vram_model_mb"], 4000.0)
+        self.assertFalse(card["vram_baseline_dirty"])
+
+    def test_reports_explain_the_missing_figure(self):
+        import os
+        import tempfile
+
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        card = ReportTests.CARD | {"vram_model_mb": None, "vram_baseline_dirty": True}
+        with tempfile.TemporaryDirectory() as tmp:
+            content = generate_markdown_report([card], [], {}, output_path=os.path.join(tmp, "r.md"))
+        self.assertIn("still loaded", content)
+        self.assertIn("| - |", content)
+
+    def test_prism_reports_its_active_model_as_running(self):
+        from benchrig.core.client import PrismClient
+
+        client = PrismClient()
+        with patch.object(PrismClient, "_health", return_value={"active_model": "phi-4-mini"}):
+            self.assertEqual(client.get_running_models(), [{"name": "phi-4-mini"}])
+        with patch.object(PrismClient, "_health", return_value={"active_model": None}):
+            self.assertEqual(client.get_running_models(), [])
+        with patch.object(PrismClient, "_health", return_value={}):
+            self.assertEqual(client.get_running_models(), [])
+
+
 class ExtraMetricsTests(RunnerTestCase):
     def test_decode_speed_is_weighted_by_tokens(self):
         runner = self.runner(FakeClient())

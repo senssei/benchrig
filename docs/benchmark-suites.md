@@ -59,7 +59,8 @@ The option is sent only to models that Ollama lists as able to think; other runt
 
 **How much budget do thinking models need?** Measured on `deepseek-r1:14b`, coding suite, one run each: a multiplier of 6 cut off
 1 to 2 of the 4 scenarios, 12 cut off 1, and 20 cut off none; the scenario that ran out at 12 (6144 tokens) finished in 4609
-tokens at 20. The need is a long tail, hence the default of 12; use `--runs 3` and check `truncated_runs` for your models.
+tokens at 20. The need is a long tail, hence the default of 12. Checked with `--runs 3` at 12: 12 requests, none cut off, at most 4822
+tokens (of a 6144 budget), coding 98.0% [94.1-100.0] and, on the biggest scenario, 3 of 4 tests in one repetition. Check `truncated_runs` for your models.
 
 ### Algorithmic Scenarios
 
@@ -93,7 +94,7 @@ Designed to test models that generate reasoning chains (such as DeepSeek-R1 or Q
       answer that way.
     - Every result records `answer_excerpt` (the last 400 characters of the answer) so a score can be audited from
       `results/runs/*.json` without re-running the model.
-    - `final_answer` scenarios (six of the nine) take the last `Final answer: ...` line and require it to match an accepted pattern
+    - `final_answer` scenarios (nine of the twelve) take the last `Final answer: ...` line and require it to match an accepted pattern
       in full; no marker means no answer. `exact_or_contains` matches numbers as whole numbers, so `11/60` no longer counts as `1/6`
       and `1114.60` no longer counts as `114.6` (both used to pass).
     - The expected answers of the new scenarios are computed by independent code in `tests/test_scenarios.py`, which also rejects near
@@ -112,9 +113,14 @@ Designed to test models that generate reasoning chains (such as DeepSeek-R1 or Q
 | Linear Recurrence (a10 of a1=3, a(n+1)=2a(n)-1) | `Final answer` | 1025 |
 | Chained Percentage Changes (80, +25%, -20%, +10%) | `Final answer` | 88 |
 | Letter Counting (r in "strawberry raspberry blueberry") | `Final answer` | 8 |
+| Bat and Ball ($1.10 total, bat $1.00 more; cents for the ball) | `Final answer` | 5 |
+| Multiples of Three or Five (1 to 100) | `Final answer` | 47 |
+| Letters in One Word (r in "strawberry") | `Final answer` | 3 |
 
 In one run of `phi4-mini`, `qwen2.5-coder:7b` and `gemma3:12b` the new scenarios split the models (Letter Counting 0 of 3, Distinct-Digit
-Multiples 2 of 3) where the old three mostly passed for everyone. Scores are still coarse with nine scenarios; add your own for a finer
+Multiples 2 of 3) where the old three mostly passed for everyone. Three easier ones (bat and ball, multiples of three or five, letters in one word) were
+added so that weaker models also pass some: `phi4-mini` on Ollama passed them 3 of 3 times each, while the hard ones (Letter Counting,
+Distinct-Digit Multiples) stayed at 0 of 3. Scores are still coarse with twelve scenarios; add your own for a finer
 ranking ([Custom scenarios](tutorials/custom-scenarios.md)).
 
 ---

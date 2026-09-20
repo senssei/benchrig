@@ -785,6 +785,7 @@ class FoundryClient(BaseRuntimeClient):
             "engine": self._engine_for(model),
             "response": response_text,
             "finish_reason": finish_reason,
+            "usage_estimated": not reported_usage,  # token counts below are guesses when the server sent no `usage`
             "eval_count": eval_count,
             "eval_tok_per_sec": round(eval_tok_sec, 2),
             "prompt_eval_count": prompt_eval_count,
@@ -839,6 +840,11 @@ class PrismClient(FoundryClient):
         except Exception:
             pass
         return {}
+
+    def get_running_models(self) -> list[dict[str, Any]]:
+        """The model Prism currently holds (its `/health` `active_model`); Prism keeps one model loaded at a time."""
+        active = self._health().get("active_model")
+        return [{"name": active}] if active else []
 
     def get_version(self) -> str:
         """Prism has no version endpoint; report what `/health` says about the accelerator."""

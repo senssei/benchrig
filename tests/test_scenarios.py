@@ -67,6 +67,19 @@ def solve_letters():
     return str("strawberry raspberry blueberry".count("r"))
 
 
+def solve_bat_ball():
+    (ball,) = [b for b in range(0, 111) if (b + 100) + b == 110]  # bat = ball + 100 cents, together 110 cents
+    return str(ball)
+
+
+def solve_multiples():
+    return str(sum(1 for n in range(1, 101) if n % 3 == 0 or n % 5 == 0))
+
+
+def solve_strawberry():
+    return str("strawberry".count("r"))
+
+
 SOLVERS = {
     "reasoning_trains": solve_trains,
     "reasoning_knights": solve_knights,
@@ -74,6 +87,9 @@ SOLVERS = {
     "reasoning_recurrence": solve_recurrence,
     "reasoning_price_chain": solve_price,
     "reasoning_letter_count": solve_letters,
+    "reasoning_bat_ball": solve_bat_ball,
+    "reasoning_multiples": solve_multiples,
+    "reasoning_strawberry": solve_strawberry,
 }
 
 
@@ -99,8 +115,8 @@ class ScenarioFileTests(unittest.TestCase):
                 self.assertIn("Final answer:", sc["prompt"], sc["id"])
                 self.assertTrue(sc["accepted_patterns"], sc["id"])
 
-    def test_the_suite_has_nine_reasoning_scenarios(self):
-        self.assertEqual(len(load("reasoning.json")), 9)
+    def test_the_suite_has_twelve_reasoning_scenarios(self):
+        self.assertEqual(len(load("reasoning.json")), 12)
 
 
 class SolverAgreementTests(unittest.TestCase):
@@ -130,6 +146,9 @@ class SolverAgreementTests(unittest.TestCase):
             "reasoning_recurrence": ["1024", "1023", "513"],
             "reasoning_price_chain": ["80", "89", "88.5"],
             "reasoning_letter_count": ["7", "9", "80"],
+            "reasoning_bat_ball": ["10", "0.05", "15"],  # 10 cents is the classic wrong answer
+            "reasoning_multiples": ["46", "48", "53", "33"],
+            "reasoning_strawberry": ["2", "4", "10"],
         }
         by_id = {s["id"]: s for s in load("reasoning.json")}
         for sid, answers in wrong.items():
@@ -148,6 +167,9 @@ class SolverAgreementTests(unittest.TestCase):
             "reasoning_distinct_digits": ["952", "**952**", "$952$", "\\boxed{952}"],
             "reasoning_price_chain": ["88", "88.00", "€88", "88 euros", "$88"],
             "reasoning_recurrence": ["1025", "1,025"],
+            "reasoning_bat_ball": ["5", "5 cents", "**5**"],
+            "reasoning_multiples": ["47", "47."],
+            "reasoning_strawberry": ["3", "**3**"],
         }
         for sid, answers in cases.items():
             for answer in answers:

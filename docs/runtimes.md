@@ -70,13 +70,22 @@ ONNX.
 - A `--pair` may carry a `prism:` model name next to `ollama:` and `foundry:`; with `--baseline` and `--runtime prism` it falls
   back to the pair's `onnx:` and then `foundry:` names.
 
+**Token counts and the model-only memory figure**
+
+- Prism started from a version with `stream_options.include_usage` sends exact token counts in the last streamed chunk, together with its device
+  telemetry. From an older Prism, or any server that sends no `usage`, BenchRig estimates the prompt tokens (word count x 1.3) and counts streamed chunks as
+  generated tokens; such results are marked `usage_estimated` and the reports say so, because prefill and decode speeds then depend on the guess.
+- Prism holds one model at a time and has no unload. When a model is still loaded as the next one is benchmarked, the "model memory" figure is left out
+  (`vram_baseline_dirty`), because peak minus a baseline that contains the previous model would be too small. Restart `prism serve` between models for it.
+
 **GPU memory on long prompts**
 
 ONNX Runtime GenAI's GPU memory grows with the prompt length (about 1.4 MB per token for Phi-4-mini) and is not released afterwards, so
 the context suite's large steps drive Prism's peak memory up (10.6 GB of model memory in the comparison against 3.8 GB on Ollama), which can
-trip the memory warning and its composite-score penalty. Start Prism with `PRISM_PREFILL_CHUNK=256` to bound it (6.6 GB instead of
-11.7 GB at 4500 prompt tokens in one measurement; see the [Prism docs](https://senssei.github.io/prism-local/devices/#gpu-memory-and-long-prompts)),
-and benchmark with and without it if memory matters to your comparison.
+trip the memory warning and its composite-score penalty. Starting Prism with `PRISM_PREFILL_CHUNK=256` bounds it (6.6 GB instead of
+11.7 GB at 4500 prompt tokens for Phi-4-mini), but the cost differs by model: on two other models the peak fell by 54% and 5% while time to first
+token rose by 110% and 33% (see the [Prism docs](https://senssei.github.io/prism-local/devices/#gpu-memory-and-long-prompts)). It is off by
+default; benchmark with and without it if memory matters to your comparison, and note which one you used.
 
 **Which device ran it**
 

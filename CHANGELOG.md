@@ -52,6 +52,12 @@ First PyPI release.
   (`retrieved`, `context_retrieval_pct`); wrong answers show as FAIL/"missed the fact" instead of ERROR, and failed requests keep their `error`.
 - After the context suite an untimed request puts the model back at the default context size. It used to leave Ollama at `num_ctx` 8192,
   so with `--runs N` the first request of the next repetition paid a model reload (TTFT about 0.8 s instead of 0.06 s).
+- **Prism token counts:** results say when the counts are estimates (`usage_estimated`, with a note in the reports) instead of silently guessing;
+  Prism now sends exact `usage` and telemetry in streamed responses (`stream_options.include_usage`).
+- **Model memory of a runtime that cannot unload:** when a model is still loaded at baseline time (Prism), the model-only figure is `-`
+  (`vram_baseline_dirty`) instead of a value that understates the model.
+- The 1:1 report also lists the min-max spread of repeated runs, and three easier reasoning scenarios (bat and ball, multiples of three or five,
+  letters in one word) bring the suite to twelve.
 - **Decode speed** is weighted by tokens (total tokens / total generation time); the plain mean is kept as `avg_eval_tok_sec_mean`.
 - **New figures:** `cold_start_sec` (first request), `gpu_fit_pct` (Ollama `/api/ps`, share of the model in GPU memory) and
   `tokens_per_joule` (GPU power), shown in a "Start-up, GPU fit & efficiency" table.

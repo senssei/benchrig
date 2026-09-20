@@ -144,9 +144,13 @@ three repetitions, with the min-max in brackets:
 
 - **Speed and latency favour Ollama, in every suite:** about 1.2x the decode speed and a lower TTFT (0.04-0.08 s against 0.13-0.18 s outside the
   context suite). Both find the hidden fact at every context size, and their energy per token is the same within 2%.
-- **The two ONNX and GGUF builds do not reason equally well.** Prism answered Knights and Knaves correctly in 1 of 3 repetitions
-  (Ollama 3 of 3) and Three Mislabeled Boxes in 0 of 3 (Ollama 2 of 3); the ranges barely touch. Both weights are Phi-4-mini, so
-  quantization and the prompt template are the suspects, which was not investigated.
+- **The ONNX and GGUF builds did not reason equally well in this run.** Prism answered Knights and Knaves correctly in 1 of 3 repetitions
+  (Ollama 3 of 3) and Three Mislabeled Boxes in 0 of 3 (Ollama 2 of 3); the ranges barely touch. It was investigated on the twelve-scenario suite with
+  three samples per scenario (36 per setting): Ollama 28 of 36 (77.8%), Prism 21 (58.3%) and 22 (61.1%) with its own chat template and with the
+  official Phi-4-mini format without newlines, and 22 (61.1%) and 22 (61.1%) for a second int4 variant (`generic-cpu`). So the prompt template is not the cause
+  and the two ONNX variants agree with each other; the answers were well formed (Prism spells "strawberry" correctly and then counts 4 "r", where Ollama counts 3).
+  What remains is the int4 conversion or the runtime's numerics, which this does not separate. The gap is suggestive but not established
+  (p about 0.07 to 0.09 by Fisher's exact test, and samples of one model are not independent); repeat it on your own scenarios before relying on it.
 - **The composite gap has two parts:** about 4.4 points from the reasoning difference and 6.0 from the memory warning, which fires when the
   whole-GPU peak crosses the threshold (a 20-point efficiency penalty at 30% weight). Prism's model memory is about 2.8x Ollama's. Measured
   separately, ONNX Runtime GenAI's GPU memory grows by about 1.4 MB per prompt token and is not released (the context suite's long prompts

@@ -6,7 +6,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from benchrig.core.runtimes import MODEL_MEMORY_NOTE, PREFILL_NOTE, runtime_label, scorecard_prefill
+from benchrig.core.runtimes import (
+    DIRTY_BASELINE_NOTE,
+    ESTIMATED_USAGE_NOTE,
+    MODEL_MEMORY_NOTE,
+    PREFILL_NOTE,
+    runtime_label,
+    scorecard_prefill,
+)
 from benchrig.reporting.common import EFFICIENCY_HEADERS, EFFICIENCY_NOTE, efficiency_rows, spread_lines, status_rich
 
 console = Console()
@@ -130,6 +137,11 @@ def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] 
     console.print(table)
     console.print(f"[dim]{PREFILL_NOTE}[/]")
     console.print(f"[dim]{MODEL_MEMORY_NOTE}[/]")
+    if any(sc.get("vram_baseline_dirty") for sc in ranked):
+        console.print(f"[dim yellow]{DIRTY_BASELINE_NOTE}[/]")
+    estimated = [sc["model"] for sc in ranked if sc.get("usage_estimated")]
+    if estimated:
+        console.print(f"[dim yellow]Estimated token counts for: {', '.join(estimated)}. {ESTIMATED_USAGE_NOTE}[/]")
     for line in spread_lines(ranked):
         console.print(f"[dim]Spread over repeated runs: {line}[/]")
     rows = efficiency_rows(ranked)
@@ -333,6 +345,8 @@ def display_1to1_comparison(
 
     console.print("\n")
     console.print(table)
+    for line in spread_lines([sc_a, sc_b]):
+        console.print(f"[dim]Spread over repeated runs: {line}[/]")
 
     # 2. Scenario-by-scenario test table
     tests_a = {r.get("test_id"): r for r in results_a}

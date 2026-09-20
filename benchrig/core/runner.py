@@ -99,6 +99,9 @@ class BenchmarkRunner:
         self.progress_callback = progress_callback
         self.specs = get_system_specs()
         self.vram_baseline_mb: float | None = None  # GPU memory in use before the model is loaded
+        # True when a model was still loaded at that moment: the baseline then contains model memory (Prism, which has no
+        # unload, still holds the previous model), so peak minus baseline would understate this model's footprint.
+        self.vram_baseline_dirty = False
         self.run_index = 0  # repetition (`--runs N`), set by the caller; 0 is the first
         self.cold_start_sec: float | None = (
             None  # duration of the first (warm-up) request, which includes loading the model
@@ -137,6 +140,10 @@ class BenchmarkRunner:
             if settled:
                 break
         self.vram_baseline_mb = previous
+        try:
+            self.vram_baseline_dirty = bool(self.client.get_running_models())
+        except Exception:
+            self.vram_baseline_dirty = False
         return previous
 
     def _sampling_defaults(self) -> dict[str, Any]:
@@ -205,7 +212,12 @@ class BenchmarkRunner:
         hardware = sampler.stop()
         if self.vram_baseline_mb is not None:
             hardware["vram_baseline_mb"] = round(self.vram_baseline_mb, 1)
-            hardware["vram_model_mb"] = round(max(0.0, hardware.get("vram_peak_mb", 0.0) - self.vram_baseline_mb), 1)
+            if self.vram_baseline_dirty:
+                hardware["vram_baseline_dirty"] = True  # no model-only figure: it would be too low
+            else:
+                hardware["vram_model_mb"] = round(
+                    max(0.0, hardware.get("vram_peak_mb", 0.0) - self.vram_baseline_mb), 1
+                )
         return resp, hardware
 
     def _base_record(
@@ -252,6 +264,10 @@ class BenchmarkRunner:
         power = hardware.get("power_avg_w", 0.0) if isinstance(hardware, dict) else 0.0
         if power and power > 0 and resp.get("eval_tok_per_sec", 0) > 0:
             record["tokens_per_joule"] = round(resp["eval_tok_per_sec"] / power, 3)  # (tokens/s) / (J/s)
+        if resp.get(
+            "usage_estimated"
+        ):  # token counts (and so prefill and decode speeds) are estimates, not the server's
+            record["usage_estimated"] = True
         if resp.get("error"):  # the request itself failed (as opposed to a wrong answer)
             record["error"] = str(resp["error"])
         if resp.get("think") is not None:  # the `think` setting that was sent (Ollama, thinking-capable models)
@@ -507,8 +523,10 @@ class BenchmarkRunner:
             r["hardware"]["vram_baseline_mb"] for r in model_results if "vram_baseline_mb" in r.get("hardware", {})
         )
         vram_baseline = baselines[len(baselines) // 2] if baselines else None
-        vram_model = max(0.0, peak_vram - vram_baseline) if vram_baseline is not None else None
+        baseline_dirty = any(r.get("hardware", {}).get("vram_baseline_dirty") for r in model_results)
+        vram_model = max(0.0, peak_vram - vram_baseline) if vram_baseline is not None and not baseline_dirty else None
         truncated_runs = sum(1 for r in model_results if r.get("truncated"))
+        usage_estimated = any(r.get("usage_estimated") for r in model_results)
         asked = [r for r in model_results if r.get("suite") == "context" and "retrieved" in r]
         context_retrieval = _percent(sum(1 for r in asked if r["retrieved"]), len(asked)) if asked else None
         vram_warning = any(r.get("hardware", {}).get("vram_warning", False) for r in model_results)
@@ -580,7 +598,9 @@ class BenchmarkRunner:
             "peak_vram_mb": round(peak_vram, 1),
             "vram_baseline_mb": round(vram_baseline, 1) if vram_baseline is not None else None,
             "vram_model_mb": round(vram_model, 1) if vram_model is not None else None,
+            "vram_baseline_dirty": baseline_dirty,
             "truncated_runs": truncated_runs,
+            "usage_estimated": usage_estimated,
             "context_retrieval_pct": round(context_retrieval, 1) if context_retrieval is not None else None,
             "total_vram_mb": round(total_vram, 1),
             "total_eval_tokens": total_eval_tokens,

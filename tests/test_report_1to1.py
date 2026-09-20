@@ -165,5 +165,52 @@ class PrismReportTests(unittest.TestCase):
         self.assertNotIn("0/0", text)
 
 
+class SpreadInThe1to1ReportTests(unittest.TestCase):
+    SPREAD = {
+        k: [1.0, 2.0]
+        for k in ("composite_score", "coding_pass_rate", "reasoning_accuracy", "avg_eval_tok_sec", "avg_ttft_sec")
+    }
+
+    def cards(self, runs):
+        a = card("phi4-mini:latest", runs=runs, spread=self.SPREAD if runs > 1 else None)
+        b = card(
+            "Phi-4-mini-instruct-cuda-gpu",
+            "prism",
+            "ONNX Runtime GenAI",
+            runs=runs,
+            spread=self.SPREAD if runs > 1 else None,
+        )
+        return a, b
+
+    def test_markdown_lists_the_spread_of_both_models_after_repeated_runs(self):
+        from benchrig.reporting.markdown import generate_1to1_comparison_report
+
+        a, b = self.cards(3)
+        with tempfile.TemporaryDirectory() as tmp:
+            content = generate_1to1_comparison_report(
+                a, b, [], [], PrismReportTests.SPECS, output_path=os.path.join(tmp, "r.md")
+            )
+        self.assertIn("Spread over repeated runs", content)
+        self.assertIn("`phi4-mini:latest` (3 runs)", content)
+        self.assertIn("`Phi-4-mini-instruct-cuda-gpu` (3 runs)", content)
+
+    def test_a_single_run_adds_nothing(self):
+        from benchrig.reporting.markdown import generate_1to1_comparison_report
+
+        a, b = self.cards(1)
+        with tempfile.TemporaryDirectory() as tmp:
+            content = generate_1to1_comparison_report(
+                a, b, [], [], PrismReportTests.SPECS, output_path=os.path.join(tmp, "r.md")
+            )
+        self.assertNotIn("Spread over repeated runs", content)
+
+    def test_terminal_report_shows_it_too(self):
+        a, b = self.cards(3)
+        console = Console(record=True, width=200)
+        with patch("benchrig.reporting.display.console", console):
+            display_1to1_comparison(a, b, [], [], pair_name="pair")
+        self.assertIn("Spread over repeated runs", console.export_text())
+
+
 if __name__ == "__main__":
     unittest.main()

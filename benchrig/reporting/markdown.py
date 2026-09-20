@@ -4,7 +4,15 @@ import os
 from datetime import datetime
 from typing import Any
 
-from benchrig.core.runtimes import MODEL_MEMORY_NOTE, PREFILL_NOTE, record_prefill, runtime_label, scorecard_prefill
+from benchrig.core.runtimes import (
+    DIRTY_BASELINE_NOTE,
+    ESTIMATED_USAGE_NOTE,
+    MODEL_MEMORY_NOTE,
+    PREFILL_NOTE,
+    record_prefill,
+    runtime_label,
+    scorecard_prefill,
+)
 from benchrig.reporting.common import (
     EFFICIENCY_HEADERS,
     EFFICIENCY_NOTE,
@@ -121,6 +129,11 @@ def generate_markdown_report(
         )
 
     lines.extend(["", f"*{PREFILL_NOTE}*", "", f"*{MODEL_MEMORY_NOTE}*"])
+    if any(sc.get("vram_baseline_dirty") for sc in ranked):
+        lines.extend(["", f"*{DIRTY_BASELINE_NOTE}*"])
+    estimated = [f"`{sc['model']}`" for sc in ranked if sc.get("usage_estimated")]
+    if estimated:
+        lines.extend(["", f"*Estimated token counts for: {', '.join(estimated)}. {ESTIMATED_USAGE_NOTE}*"])
     rows = efficiency_rows(ranked)
     if rows:
         lines.extend(["", "## 🔋 Start-up, GPU Fit & Efficiency", "", "| " + " | ".join(EFFICIENCY_HEADERS) + " |"])
@@ -318,6 +331,19 @@ def generate_markdown_report(
     return content
 
 
+def _spread_block(scorecards: list[dict[str, Any]]) -> list[str]:
+    """Lines listing the min-max over repeated runs (`--runs N`) of each scorecard that has one; empty for single runs."""
+    spreads = spread_lines(scorecards)
+    if not spreads:
+        return []
+    return [
+        "",
+        "**Spread over repeated runs** (min-max per metric; the values above are means):",
+        "",
+        *(f"- {s}" for s in spreads),
+    ]
+
+
 def generate_1to1_comparison_report(
     scorecard_a: dict[str, Any],
     scorecard_b: dict[str, Any],
@@ -409,6 +435,7 @@ def generate_1to1_comparison_report(
             else f"`{rt_b}` (+{scorecard_b.get('composite_score', 0) - scorecard_a.get('composite_score', 0):.1f})"
         )
         + " |",
+        *_spread_block([scorecard_a, scorecard_b]),
         "",
         "---",
         "",

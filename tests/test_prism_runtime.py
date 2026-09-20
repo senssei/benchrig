@@ -1,5 +1,6 @@
 """Tests for the Prism (prism-local) runtime: client, CLI wiring and report labels."""
 
+import json
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -126,6 +127,68 @@ class PrismClientTests(unittest.TestCase):
         self.assertIsInstance(client, PrismClient)
         self.assertEqual((client.base_url, client.api_key, client.timeout_sec), ("http://10.0.0.5:9000/v1", "k", 7))
         self.assertIsInstance(create_runtime_client("prism-local", {}), PrismClient)
+
+
+class UsageTests(unittest.TestCase):
+    """Token counts are the server's when it reports `usage`, and marked as estimates when it does not."""
+
+    def stream(self, *chunks):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.iter_lines.return_value = [f"data: {json.dumps(c)}".encode() for c in chunks] + [b"data: [DONE]"]
+        return resp
+
+    def generate(self, *chunks):
+        with (
+            patch("requests.post", return_value=self.stream(*chunks)),
+            patch("requests.get", return_value=response({})),
+        ):
+            return PrismClient().generate("m", "one two three four", measure_ttft=True)
+
+    def test_usage_and_telemetry_from_the_last_chunk_are_used(self):
+        result = self.generate(
+            {"choices": [{"delta": {"content": "a"}}]},
+            {"choices": [{"delta": {"content": "b"}, "finish_reason": None}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 2}, "telemetry": {"device": "cuda"}},
+        )
+        self.assertEqual((result["prompt_eval_count"], result["eval_count"]), (7, 2))
+        self.assertFalse(result["usage_estimated"])
+        self.assertEqual(result["device"], "cuda")  # from the stream itself, no /health round trip needed
+
+    def test_a_server_that_sends_no_usage_is_marked_as_estimated(self):
+        result = self.generate(
+            {"choices": [{"delta": {"content": "a"}}]}, {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        )
+        self.assertTrue(result["usage_estimated"])
+        self.assertEqual(result["prompt_eval_count"], int(4 * 1.3))
+
+    def test_the_flag_reaches_records_scorecards_and_reports(self):
+        import os
+        import tempfile
+
+        from benchrig.reporting.markdown import generate_markdown_report
+        from tests.test_measurement_methodology import FakeClient, make_runner
+
+        runner = make_runner(FakeClient(usage_estimated=True))
+        records = runner.run_speed_suite("m", [{"id": "s", "name": "S", "prompt": "x"}])
+        self.assertTrue(records[0]["usage_estimated"])
+        card = runner.compute_model_scorecard("m", records)
+        self.assertTrue(card["usage_estimated"])
+        with tempfile.TemporaryDirectory() as tmp:
+            content = generate_markdown_report(
+                [{**card, "peak_vram_mb": 1.0}], [], {}, output_path=os.path.join(tmp, "r.md")
+            )
+        self.assertIn("Estimated token counts for: `m`", content)
+
+    def test_exact_counts_add_nothing(self):
+        from tests.test_measurement_methodology import FakeClient, make_runner
+
+        runner = make_runner(FakeClient())
+        records = runner.run_speed_suite("m", [{"id": "s", "name": "S", "prompt": "x"}])
+        self.assertNotIn("usage_estimated", records[0])
+        self.assertFalse(runner.compute_model_scorecard("m", records)["usage_estimated"])
 
 
 class CliWiringTests(unittest.TestCase):

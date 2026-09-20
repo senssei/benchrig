@@ -11,7 +11,7 @@ All test cases in **BenchRig** are defined as modular JSON arrays in the `scenar
 | Scenario File | Target Suite | Evaluation Methodology |
 | :--- | :--- | :--- |
 | [`coding.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/coding.json) | `coding` | Python code block extraction, AST validation, execution in isolated subprocesses against unit assertion arrays. |
-| [`reasoning.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/reasoning.json) | `reasoning` | Nine multi-step math and logic puzzles evaluated against ground truth (a `Final answer:` line, whole-number matching or regex); tracks thinking metrics. |
+| [`reasoning.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/reasoning.json) | `reasoning` | Twelve multi-step math and logic puzzles evaluated against ground truth (a `Final answer:` line, whole-number matching or regex); tracks thinking metrics. |
 | [`speed.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/speed.json) | `speed` | Fixed-token prefill and decode prompts to measure raw token throughput and Time to First Token (TTFT). |
 | [`context_scaling.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/context_scaling.json) | `context` | Scaled input contexts (512 to 8192 tokens) with a hidden fact to retrieve (`needle`, `instruction`, `expected`), measuring whether the model uses the context, TTFT degradation and memory growth. |
 | [`polish.json`](https://github.com/senssei/benchrig/blob/main/benchrig/data/scenarios/polish.json) | `polish` | Polish language grammatical inflections, noun cases (biernik, dopełniacz), and syntax validation. |

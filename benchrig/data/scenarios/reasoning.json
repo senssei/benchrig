@@ -120,5 +120,47 @@
       "num_predict": 1024
     },
     "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_bat_ball",
+    "name": "Bat and Ball",
+    "prompt": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How many cents does the ball cost? Think step by step. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "5",
+    "accepted_patterns": [
+      "5(?: ?cents?| ?¢)?"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_multiples",
+    "name": "Multiples of Three or Five",
+    "prompt": "How many integers from 1 to 100 inclusive are divisible by 3 or by 5 (or by both)? Think step by step. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "47",
+    "accepted_patterns": [
+      "47"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
+  },
+  {
+    "id": "reasoning_strawberry",
+    "name": "Letters in One Word",
+    "prompt": "How many times does the letter \"r\" appear in the word \"strawberry\"? Spell the word out letter by letter. End with exactly one line in the form: Final answer: <integer>",
+    "expected_answer": "3",
+    "accepted_patterns": [
+      "3"
+    ],
+    "options": {
+      "temperature": 0.1,
+      "num_predict": 1024
+    },
+    "check_type": "final_answer"
   }
 ]
