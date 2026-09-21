@@ -37,6 +37,11 @@ versions may include breaking changes).
   `insufficient_resources`); other 5xx are NOT retried. Wired through `FoundryClient._make_request`
   with a `PrismClient._make_request` override. New `PrismBusyError` exception is raised by the
   helper itself (Phase 4, item 4.5; spec.md I6).
+- Live integration test `tests/test_prism_runtime_live.py` exercises the benchrig `PrismClient.generate`
+  path end-to-end against a running prism-local 0.2.0+ server (`prism serve --port 5272`); skipped
+  automatically when the server is not reachable. Verified: items 4.1 (usage + telemetry in last
+  chunk, `usage_estimated=False`), 4.2 (`device` from telemetry, not `exported_for`), and 4.5
+  (concurrent load retries against the real load-lock).
 
 ## [0.1.0] - 2026-09-20
 
