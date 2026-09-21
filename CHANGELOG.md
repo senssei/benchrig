@@ -16,6 +16,27 @@ versions may include breaking changes).
 - Markdown report (`benchrig.reporting.markdown.generate_markdown_report`) embeds the chart as
   `![Composite scores](chart_path)` near the top and links the CSV as `**Attachments:** [CSV](csv_path)`
   near the bottom, but only when those files were produced this run (Phase 1, item 1.3; spec.md I2).
+- Warning when a benchmark target uses the `generic-cpu` execution provider on a CUDA host
+  (`benchrig.core.runtimes.warning_for_provider`, wired into `benchrig.cli._warn_slow_provider`).
+  Printed once per run before any model is benchmarked; the run continues and exits 0 (Phase 2,
+  item 2.1; spec.md I4).
+- New scorecard field `vram_baseline_dirty_mb` records the foreign-process GPU memory at the baseline
+  (MiB, rounded; `None` on macOS / generic CPU; `0.0` when no foreign process holds the GPU). Surfaced
+  via `BaseHardwareProvider.read_gpu_foreign_memory_mb(own_pids)` (NVIDIA: nvidia-smi
+  `--query-compute-apps=pid,used_memory`) and `BenchmarkRunner.measure_vram_baseline` (Phase 2,
+  item 2.2).
+- Regression test pinning that `PrismClient.generate` reads the device from `telemetry.device` and
+  ignores `exported_for` (Phase 4, item 4.2; spec.md I5).
+- Documentation: new "Tuning the Prism server with environment variables" section in `docs/runtimes.md`
+  lists `PRISM_PREFILL_CHUNK` (default `1024`), `PRISM_THREADS` (default unset), and `PRISM_DEVICE`
+  (default `auto`) with their trade-offs (Phase 4, item 4.3). No CLI / code change: the env vars are
+  read by prism-local itself.
+- `PrismClient` retries 503 with the server-provided `Retry-After` (capped at 60 s, max 3 retries)
+  via the new `benchrig.core.client._post_with_503_retry` helper. After the budget runs out the
+  result is a clear failure carrying the JSON reason (e.g. `server_busy`,
+  `insufficient_resources`); other 5xx are NOT retried. Wired through `FoundryClient._make_request`
+  with a `PrismClient._make_request` override. New `PrismBusyError` exception is raised by the
+  helper itself (Phase 4, item 4.5; spec.md I6).
 
 ## [0.1.0] - 2026-09-20
 

@@ -87,6 +87,18 @@ trip the memory warning and its composite-score penalty. Starting Prism with `PR
 token rose by 110% and 33% (see the [Prism docs](https://senssei.github.io/prism-local/devices/#gpu-memory-and-long-prompts)). It is off by
 default; benchmark with and without it if memory matters to your comparison, and note which one you used.
 
+**Tuning the Prism server with environment variables**
+
+BenchRig does not read these — Prism does, when you start it with `prism serve`. Set them before the
+server starts and the change takes effect for every model you benchmark against it. Trade-offs here move
+with the prism-local release, so always cross-check with the [Prism docs](https://senssei.github.io/prism-local/).
+
+| Variable | Default | Effect |
+| :--- | :--- | :--- |
+| `PRISM_PREFILL_CHUNK` | `1024` | Prompt tokens processed per step. `0` or `off` processes the whole prompt at once; small values (e.g. `256`) bound peak memory on long prompts at the cost of higher TTFT — see the note above. |
+| `PRISM_THREADS` | *(unset, auto)* | Intra-op parallelism for ONNX Runtime GenAI. Set to a positive integer when you want a deterministic thread count; leave unset to let the runtime pick. |
+| `PRISM_DEVICE` | `auto` | Execution provider Prism picks when serving ONNX models: `auto` (CUDA when present, else CPU), `cuda`, or `cpu`. Read every result's `device` field rather than trusting the model name. |
+
 **Which device ran it**
 
 Each result record from Prism carries a `device` field (`cuda` or `cpu`): the execution provider Prism reports for that request, from

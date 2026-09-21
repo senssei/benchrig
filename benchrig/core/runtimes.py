@@ -52,3 +52,23 @@ ESTIMATED_USAGE_NOTE = (
     "generated tokens are the streamed chunks), so prefill and decode speeds for it are approximate. Prism sends `usage` when "
     "started from a version that supports `stream_options.include_usage`."
 )
+
+
+# Warning text is part of the spec (spec.md §3). Tests in tests/test_warnings.py guard key substrings.
+GENERIC_CPU_ON_CUDA_WARNING = (
+    "generic-cpu execution provider on a CUDA host is very slow (2–22 tok/s for qwen; "
+    "Phi-3.5-mini may not finish 4500 tokens in 5 min). Use the cuda provider or benchmark on CPU-only hardware."
+)
+
+
+def warning_for_provider(provider: object, host_gpu_type: object) -> str | None:
+    """Return a warning string when ``provider`` is ``generic-cpu`` on a CUDA host, else ``None``.
+
+    On Apple Silicon, ``generic-cpu`` is the normal CPU execution provider (not the slow path) and produces
+    no warning. Empty / missing providers are also a no-op.
+    """
+    p = str(provider or "").strip().lower()
+    host = str(host_gpu_type or "").strip().lower()
+    if p == "generic-cpu" and host == "nvidia":
+        return GENERIC_CPU_ON_CUDA_WARNING
+    return None

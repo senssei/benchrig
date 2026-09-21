@@ -1,6 +1,7 @@
 """Unified Local LLM API Clients supporting Ollama and Microsoft Foundry Server Runtime."""
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,83 @@ from collections.abc import Callable
 from typing import Any
 
 import requests
+
+_log = logging.getLogger(__name__)
+
+# Hard ceiling on Retry-After from prism-local: the server says "30", but we cap to keep a misconfigured
+# server from blocking a benchmark run for an unbounded time. Override via env var if you really mean it.
+_PRISM_RETRY_AFTER_CAP_SEC = float(os.environ.get("BENCHRIG_PRISM_RETRY_AFTER_CAP", "60"))
+# Default max retries on 503 (initial attempt + retries). Prism server can stay busy for a while; 3 is a
+# reasonable budget for a benchmark run that needs to finish in seconds-to-minutes.
+_PRISM_503_MAX_RETRIES = 3
+
+
+class PrismBusyError(RuntimeError):
+    """Raised after `PrismClient` exhausts its retry budget on 503 from prism-local.
+
+    The error message includes the `error.code` and `error.message` from the JSON body, so the user
+    sees whether the cause was `server_busy` (queue full) or `insufficient_resources` (load lock
+    contention).
+    """
+
+    def __init__(self, reason: str, attempts: int, last_body: Any = None):
+        self.reason = reason
+        self.attempts = attempts
+        self.last_body = last_body
+        super().__init__(f"prism-local kept responding 503 ({attempts} attempts): {reason}")
+
+
+def _post_with_503_retry(
+    url: str,
+    *,
+    max_retries: int = _PRISM_503_MAX_RETRIES,
+    retry_after_cap_sec: float = _PRISM_RETRY_AFTER_CAP_SEC,
+    **kwargs: Any,
+) -> requests.Response:
+    """``requests.post`` that retries on 503 with the server-provided ``Retry-After``.
+
+    Other 4xx / 5xx responses are NOT retried: the caller gets them as-is and ``raise_for_status()``
+    converts them to ``requests.HTTPError`` (or the caller handles the response).
+    """
+    attempts = 0
+    while True:
+        r = requests.post(url, **kwargs)
+        attempts += 1
+        if r.status_code != 503:
+            return r
+        if attempts > max_retries:
+            # Last attempt was 503; surface the JSON reason and stop.
+            try:
+                body = r.json()
+            except Exception:
+                body = None
+            reason = "unknown"
+            if isinstance(body, dict):
+                err = body.get("error") if isinstance(body.get("error"), dict) else None
+                if err:
+                    reason = f"{err.get('code', 'unknown')}: {err.get('message', '')}".strip(": ")
+            _log.info("prism-local 503 (attempt %d): %s", attempts, reason)
+            raise PrismBusyError(reason=reason, attempts=attempts, last_body=body)
+        # Parse Retry-After. Header may be a delay in seconds (integer / float) or an HTTP-date.
+        delay = 0.0
+        raw = r.headers.get("Retry-After") if hasattr(r, "headers") else None
+        if raw:
+            try:
+                delay = float(raw)
+            except ValueError:
+                # HTTP-date; ignore (we don't have a clock-comparison helper here, and the server
+                # uses seconds in practice).
+                delay = 0.0
+        delay = min(delay, retry_after_cap_sec)
+        _log.info(
+            "prism-local 503 (attempt %d/%d); Retry-After=%s → sleeping %.1fs",
+            attempts,
+            max_retries + 1,
+            raw,
+            delay,
+        )
+        if delay > 0:
+            time.sleep(delay)
 
 
 class BaseRuntimeClient:
@@ -619,6 +697,11 @@ class FoundryClient(BaseRuntimeClient):
                 stream_callback({"status": "error", "error": str(e)})
             return False
 
+    def _make_request(self, url: str, **kwargs: Any) -> requests.Response:
+        """Single POST hook. Override in subclasses that need transport-level behaviour
+        (e.g. ``PrismClient`` retries on 503 with ``Retry-After``). Default = plain ``requests.post``."""
+        return requests.post(url, **kwargs)
+
     def generate(
         self,
         model: str,
@@ -672,7 +755,7 @@ class FoundryClient(BaseRuntimeClient):
 
         def _send_request():
             if measure_ttft:
-                return requests.post(
+                return self._make_request(
                     endpoint,
                     json=payload,
                     stream=True,
@@ -683,7 +766,7 @@ class FoundryClient(BaseRuntimeClient):
                 p = dict(payload)
                 p["stream"] = False
                 p.pop("stream_options", None)
-                return requests.post(
+                return self._make_request(
                     endpoint,
                     json=p,
                     timeout=self.timeout_sec,
@@ -813,6 +896,12 @@ class PrismClient(FoundryClient):
     display_name: str = "Prism"
     engine_name: str = "ONNX Runtime GenAI"
     DEFAULT_BASE_URL = "http://127.0.0.1:5272/v1"
+
+    def _make_request(self, url: str, **kwargs: Any) -> requests.Response:
+        # Prism returns 503 + Retry-After when its load lock is held or the queue is full
+        # (prism-local HEAD, prism/server.py:669-671). Retry with the server-provided delay
+        # (capped at 60 s), then give up with PrismBusyError. Other 4xx / 5xx are NOT retried.
+        return _post_with_503_retry(url, **kwargs)
 
     def __init__(
         self,

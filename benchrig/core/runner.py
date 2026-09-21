@@ -1,5 +1,6 @@
 """Benchmark execution engine that orchestrates test suites, hardware monitoring, and scoring."""
 
+import os
 import time
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -102,6 +103,9 @@ class BenchmarkRunner:
         # True when a model was still loaded at that moment: the baseline then contains model memory (Prism, which has no
         # unload, still holds the previous model), so peak minus baseline would understate this model's footprint.
         self.vram_baseline_dirty = False
+        # Foreign-process GPU memory at the baseline (MiB): IDE MCP servers, another model's leftovers, the WSL2 host, …
+        # ``None`` when the platform has no per-process GPU query (macOS). Plan item 2.2.
+        self.vram_baseline_dirty_mb: float | None = None
         self.run_index = 0  # repetition (`--runs N`), set by the caller; 0 is the first
         self.cold_start_sec: float | None = (
             None  # duration of the first (warm-up) request, which includes loading the model
@@ -140,6 +144,10 @@ class BenchmarkRunner:
             if settled:
                 break
         self.vram_baseline_mb = previous
+        # Foreign-process GPU memory (plan item 2.2): the noisy part of the baseline. ``None`` when the
+        # platform has no per-process query (macOS, generic CPU); ``0.0`` when nothing foreign holds the GPU.
+        own_pids = {os.getpid(), os.getppid()}
+        self.vram_baseline_dirty_mb = round(provider.read_gpu_foreign_memory_mb(own_pids), 1)
         try:
             self.vram_baseline_dirty = bool(self.client.get_running_models())
         except Exception:
@@ -214,6 +222,8 @@ class BenchmarkRunner:
             hardware["vram_baseline_mb"] = round(self.vram_baseline_mb, 1)
             if self.vram_baseline_dirty:
                 hardware["vram_baseline_dirty"] = True  # no model-only figure: it would be too low
+            if self.vram_baseline_dirty_mb is not None:
+                hardware["vram_baseline_dirty_mb"] = self.vram_baseline_dirty_mb
             else:
                 hardware["vram_model_mb"] = round(
                     max(0.0, hardware.get("vram_peak_mb", 0.0) - self.vram_baseline_mb), 1

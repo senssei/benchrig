@@ -23,7 +23,7 @@ from benchrig import __version__
 from benchrig.core.client import BaseRuntimeClient, create_runtime_client
 from benchrig.core.hardware import get_system_specs
 from benchrig.core.runner import BenchmarkRunner
-from benchrig.core.runtimes import runtime_label
+from benchrig.core.runtimes import runtime_label, warning_for_provider
 from benchrig.reporting.display import (
     console,
     display_1to1_comparison,
@@ -103,6 +103,26 @@ def load_scenario_file(filepath: str) -> list[dict[str, Any]]:
         with open(filepath, encoding="utf-8") as f:
             return json.load(f)
     return []
+
+
+_GENERIC_CPU_SUFFIX_RE = re.compile(r"-generic-cpu(?::\d+)?$", re.IGNORECASE)
+
+
+def _warn_slow_provider(targets: list[tuple[str, str]], specs: dict[str, Any]) -> None:
+    """Print the slow-provider warning once per run when a target uses generic-cpu on a CUDA host.
+
+    Targets are ``(runtime, model)`` pairs. The provider is read from the model alias suffix
+    (``-generic-cpu``); the host GPU type comes from ``specs["gpu_type"]``. The warning is informational:
+    the run continues and exits 0 (spec.md I4).
+    """
+    host_gpu_type = specs.get("gpu_type", "")
+    warned = False
+    for _runtime, model in targets:
+        if _GENERIC_CPU_SUFFIX_RE.search(model):
+            msg = warning_for_provider(provider="generic-cpu", host_gpu_type=host_gpu_type)
+            if msg and not warned:
+                console.print(f"[bold yellow]⚠ {msg}[/]\n")
+                warned = True
 
 
 def load_json_or_exit(path: str, description: str) -> dict[str, Any]:
@@ -639,6 +659,8 @@ def run_benchmarks(
 
     console.print(f"\n[bold green]🚀 Starting benchmark for models:[/] {', '.join(f'{rt}:{m}' for rt, m in targets)}")
     console.print(f"[bold cyan]Selected test suites:[/] {', '.join(suites_to_run)}\n")
+    # Warn once per run when a target uses the slow generic-cpu execution provider on a CUDA host (spec.md I4).
+    _warn_slow_provider(targets, specs)
 
     raw_results: list[dict[str, Any]] = []
     total_start = time.time()

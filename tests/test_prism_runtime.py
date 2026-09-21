@@ -5,6 +5,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from benchrig import cli
 from benchrig.core.client import PrismClient, create_runtime_client
 from benchrig.core.runtimes import runtime_label
@@ -189,6 +191,142 @@ class UsageTests(unittest.TestCase):
         records = runner.run_speed_suite("m", [{"id": "s", "name": "S", "prompt": "x"}])
         self.assertNotIn("usage_estimated", records[0])
         self.assertFalse(runner.compute_model_scorecard("m", records)["usage_estimated"])
+
+    def test_device_comes_from_telemetry_not_from_export_label(self):
+        """Regression for plan Phase 4 item 4.2: device must come from the response's telemetry.device
+        (the device that actually ran the request), never from `exported_for` (a user-supplied label
+        that can differ). The Prism server can put `exported_for` in any payload field; the parser
+        ignores it.
+        """
+        # Stream mimics a Prism 0.2.0 response where the model was exported for CPU and runs on CUDA.
+        result = self.generate(
+            {"choices": [{"delta": {"content": "a"}}]},
+            {"choices": [{"delta": {"content": "b"}, "finish_reason": None}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+            {
+                "choices": [],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+                "telemetry": {"device": "CUDA (GPU)"},
+                # `exported_for` belongs to /v1/models, not to the chat completion response, but a
+                # future change could leak it here; the parser must still ignore it.
+                "exported_for": "cpu",
+            },
+        )
+        self.assertEqual(result["device"], "CUDA (GPU)", "device must come from telemetry, not exported_for")
+        self.assertFalse(result["usage_estimated"])
+
+
+class Retry503Tests(unittest.TestCase):
+    """Phase 4 item 4.5: prism-local returns 503 with Retry-After: 30 for `server_busy` and
+    `insufficient_resources` (prism/server.py:669-671). Benchrig retries up to 3× with the
+    server-provided delay (capped at 60 s) and raises PrismBusyError after that. Other 5xx are NOT
+    retried."""
+
+    def _response(self, status, *, body=None, retry_after=None):
+        resp = MagicMock()
+        resp.status_code = status
+        resp.raise_for_status = MagicMock(
+            side_effect=requests.HTTPError(f"{status} simulated", response=resp) if status >= 400 else None
+        )
+        resp.json.return_value = body if body is not None else {}
+        resp.text = json.dumps(body) if body is not None else ""
+        resp.headers = {"Retry-After": str(retry_after)} if retry_after is not None else {}
+        resp.iter_lines.return_value = (
+            [f"data: {json.dumps(c)}".encode() for c in body.get("chunks", [])] + [b"data: [DONE]"]
+            if status == 200 and body
+            else []
+        )
+        return resp
+
+    def test_prism_client_retries_on_503_with_retry_after(self):
+        from benchrig.core.client import PrismClient
+
+        ok_body = {
+            "chunks": [
+                {"choices": [{"delta": {"content": "a"}}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+            ],
+        }
+        busy_body = {"error": {"code": "server_busy", "message": "queue full"}}
+        responses = [
+            self._response(503, body=busy_body, retry_after=1),
+            self._response(200, body=ok_body),
+        ]
+        with (
+            patch("requests.post", side_effect=responses),
+            patch("requests.get", return_value=response({})),
+            patch("time.sleep") as mocked_sleep,
+        ):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PRISM_API_KEY", None)
+                client = PrismClient()
+                result = client.generate("m", "hi", measure_ttft=False)
+        self.assertEqual(result["success"], True)
+        self.assertEqual(mocked_sleep.call_count, 1, "must sleep exactly once between the two POSTs")
+        # The sleep argument is the parsed Retry-After (1).
+        self.assertEqual(mocked_sleep.call_args.args[0], 1)
+
+    def test_prism_client_gives_up_after_three_retries(self):
+        from benchrig.core.client import PrismClient
+
+        busy_body = {"error": {"code": "insufficient_resources", "message": "load lock held by another process"}}
+        responses = [
+            self._response(503, body=busy_body, retry_after=0)
+            for _ in range(4)  # initial + 3 retries = 4 POSTs total
+        ]
+        with (
+            patch("requests.post", side_effect=responses),
+            patch("requests.get", return_value=response({})),
+            patch("time.sleep"),
+        ):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PRISM_API_KEY", None)
+                client = PrismClient()
+                # The benchrig generate() swallows exceptions into a failure result (matches
+                # existing behaviour for HTTPError). The retry helper DID exhaust its budget
+                # and the failure result carries the PrismBusyError reason so the user can
+                # distinguish "queue full" from "load lock held" from a real 500.
+                result = client.generate("m", "hi", measure_ttft=False)
+        self.assertFalse(result["success"], "after 4×503 the run must be marked failed")
+        self.assertIn("insufficient_resources", str(result.get("error", "")))
+        self.assertIn("load lock", str(result.get("error", "")))
+
+    def test_post_with_503_retry_raises_prism_busy_after_budget(self):
+        """The helper itself raises PrismBusyError when its budget runs out — exercised directly,
+        without the swallow in generate()."""
+        from benchrig.core.client import PrismBusyError, _post_with_503_retry
+
+        busy_body = {"error": {"code": "insufficient_resources", "message": "load lock held"}}
+        responses = [self._response(503, body=busy_body, retry_after=0) for _ in range(4)]
+        with (
+            patch("requests.post", side_effect=responses),
+            patch("time.sleep"),
+        ):
+            with self.assertRaises(PrismBusyError) as ctx:
+                _post_with_503_retry("http://x/y")
+        self.assertEqual(ctx.exception.attempts, 4)
+        self.assertIn("insufficient_resources", ctx.exception.reason)
+        self.assertIn("load lock held", ctx.exception.reason)
+
+    def test_prism_client_does_not_retry_on_500(self):
+        from benchrig.core.client import PrismClient
+
+        resp500 = self._response(500, body={"error": "oops"}, retry_after=1)
+        with (
+            patch("requests.post", return_value=resp500),
+            patch("requests.get", return_value=response({})),
+            patch("time.sleep") as mocked_sleep,
+        ):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PRISM_API_KEY", None)
+                client = PrismClient()
+                # 500 is not retried; the benchrig generate() swallows the HTTPError into a
+                # failure result (matches existing behaviour). The point of the test is that
+                # NO sleep was triggered — i.e. the retry helper did NOT engage.
+                result = client.generate("m", "hi", measure_ttft=False)
+        self.assertFalse(result["success"], "500 produces a failure result, not a success")
+        self.assertEqual(mocked_sleep.call_count, 0, "500 must NOT trigger a retry")
+        self.assertEqual(resp500.raise_for_status.call_count, 1)
 
 
 class CliWiringTests(unittest.TestCase):

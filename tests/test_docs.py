@@ -44,6 +44,14 @@ class DocsCoverageTests(unittest.TestCase):
         for var in (cli.CONFIG_ENV_VAR, "BENCHRIG_MODEL_DIRS", "PRISM_API_KEY"):
             self.assertTrue(var in text, f"{var} is missing from docs/configuration.md")
 
+    def test_prism_env_vars_are_documented(self):
+        """Phase 4 item 4.3: PRISM_PREFILL_CHUNK, PRISM_THREADS, PRISM_DEVICE must appear in
+        docs/runtimes.md (they are read by prism-local itself, not by benchrig, so the user has to
+        know to set them when starting `prism serve`)."""
+        text = read("runtimes.md")
+        for var in ("PRISM_PREFILL_CHUNK", "PRISM_THREADS", "PRISM_DEVICE"):
+            self.assertIn(var, text, f"{var} is missing from docs/runtimes.md")
+
     def test_every_page_is_in_the_nav_and_every_nav_entry_exists(self):
         nav = (ROOT / "mkdocs.yml").read_text(encoding="utf-8").split("\nnav:\n", 1)[1]
         listed = set(re.findall(r":\s*(\S+\.md)\s*$", nav, re.MULTILINE))

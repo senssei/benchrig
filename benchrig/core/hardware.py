@@ -34,6 +34,12 @@ class BaseHardwareProvider:
         """Read (vram_used_mb, vram_total_mb, util_pct, temp_c, power_w)."""
         return 0.0, 0.0, 0.0, 0.0, 0.0
 
+    def read_gpu_foreign_memory_mb(self, own_pids: set[int]) -> float:
+        """Sum of GPU memory (MiB) used by processes NOT in ``own_pids``. ``0.0`` on platforms with no
+        per-process GPU memory query (macOS, generic CPU). Override on platforms that have the data."""
+        del own_pids  # unused on the base provider
+        return 0.0
+
     def read_ram_used_gb(self) -> float:
         """Read currently used system RAM in GB."""
         return 0.0
@@ -348,6 +354,46 @@ class LinuxNvidiaProvider(BaseHardwareProvider):
         except Exception:
             pass
         return 0.0
+
+    def _run_nvidia_smi(self, args: list[str]) -> str | None:
+        """Run ``nvidia-smi <args>`` and return stdout, or ``None`` on any failure. Wraps the per-process
+        query so tests can stub it cleanly without touching ``subprocess.run``."""
+        if not self.smi_path:
+            return None
+        try:
+            res = subprocess.run(
+                [self.smi_path, *args],
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+            )
+            if res.returncode == 0:
+                return res.stdout
+        except Exception:
+            pass
+        return None
+
+    def read_gpu_foreign_memory_mb(self, own_pids: set[int]) -> float:
+        """Sum of GPU memory (MiB) used by processes NOT in ``own_pids``, from
+        ``nvidia-smi --query-compute-apps=pid,used_memory``. Returns ``0.0`` when the query is unavailable
+        or there are no foreign processes."""
+        stdout = self._run_nvidia_smi(["--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"])
+        if not stdout:
+            return 0.0
+        total = 0.0
+        for line in stdout.splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 2:
+                continue
+            try:
+                pid = int(parts[0])
+                mem_mib = float(parts[1])
+            except ValueError:
+                continue
+            if pid in own_pids:
+                continue
+            total += mem_mib
+        return total
 
 
 class GenericCPUProvider(BaseHardwareProvider):
