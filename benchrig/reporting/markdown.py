@@ -27,8 +27,15 @@ def generate_markdown_report(
     raw_results: list[dict[str, Any]],
     system_specs: dict[str, str],
     output_path: str = "results/LATEST_SUMMARY.md",
+    chart_path: str | None = None,
+    csv_path: str | None = None,
 ) -> str:
-    """Generate comprehensive Markdown report with tables and recommendations."""
+    """Generate comprehensive Markdown report with tables and recommendations.
+
+    When ``chart_path`` is set, the report embeds ``![Composite scores](chart_path)`` near the top. When
+    ``csv_path`` is set, the report adds ``**Attachments:** [CSV](csv_path)`` near the bottom. Both default
+    to ``None`` so callers that did not produce the artifact do not get a broken link (spec.md I2).
+    """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     ranked = sorted(scorecards, key=lambda x: x.get("composite_score", 0), reverse=True)
 
@@ -54,9 +61,20 @@ def generate_markdown_report(
         "",
         "---",
         "",
-        f"## 🏆 Highlights & Recommendations ({platform_label})",
-        "",
     ]
+    if chart_path:
+        lines.extend(
+            [
+                f"![Composite scores]({chart_path})",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            f"## 🏆 Highlights & Recommendations ({platform_label})",
+            "",
+        ]
+    )
 
     if best_overall:
         lines.append(
@@ -319,6 +337,17 @@ def generate_markdown_report(
             "",
             "---",
             "",
+        ]
+    )
+    if csv_path:
+        lines.extend(
+            [
+                f"**Attachments:** [CSV]({csv_path})",
+                "",
+            ]
+        )
+    lines.extend(
+        [
             "*Generated automatically by BenchRig.*",
             "",
         ]

@@ -1,0 +1,26 @@
+# Gate configuration for scripts/sdlc_check.py. Project-owned: edit freely.
+# Every command runs through the shell from the repository root; exit 0 means pass.
+
+base = "main"            # ref the diff is taken from (changelog check, review)
+
+[[check]]
+name = "tests"
+run = ".venv/bin/python -m pytest"
+# skip_if_missing = "mkdocs"        # optional: SKIP instead of FAIL when this executable is not installed
+
+[[check]]
+name = "lint"
+run = ".venv/bin/ruff check . && .venv/bin/ruff format --check ."
+
+[changelog]                          # optional: remove the section to disable the check
+file = "CHANGELOG.md"
+runtime_paths = ["benchrig/"]        # a change under these paths requires `file` to change too
+
+[red]                                # red-first: how to run exactly one test; {id} is replaced by the (shell-quoted) id
+run = ".venv/bin/python -m pytest -x -q {id}"
+timeout = 300
+# Do not put {id} inside quotes in `run`: it is already quoted. Test ids that start with "-" cannot be passed to --red.
+not_found = ["no tests ran", "^ERROR: (file or directory )?not found"]
+                                     # Keep them narrow: a pattern that also matches a genuine failure message hides a red test.
+ignore = ["^FAILED\\b", "^\\d+ (failed|passed)", "^=+ ", "^={3,}"]
+                                     # regexes for summary/decoration lines that must never be shown as the failure reason

@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [SemVer](https://semver.org/) (pre-1.0: minor
 versions may include breaking changes).
 
+## [Unreleased]
+
+### Added
+- CSV export of scorecards (`benchrig.reporting.csv_export.write_scorecards_csv`) with a fixed column order
+  (`SCORECARD_CSV_COLUMNS`). Wired to the upcoming `--csv <path>` CLI flag (Phase 1, item 1.1).
+- PNG chart export of scorecards (`benchrig.reporting.charts.write_scorecards_chart`) with one bar per
+  scorecard (bar height = `composite_score`, label = `<model> (<runtime>)`). Wired to the upcoming
+  `--chart <path>` CLI flag (Phase 1, item 1.2). `matplotlib` is imported lazily inside the function
+  so the CLI still loads when the `[charts]` extra is not installed (spec.md I3).
+- Markdown report (`benchrig.reporting.markdown.generate_markdown_report`) embeds the chart as
+  `![Composite scores](chart_path)` near the top and links the CSV as `**Attachments:** [CSV](csv_path)`
+  near the bottom, but only when those files were produced this run (Phase 1, item 1.3; spec.md I2).
+
 ## [0.1.0] - 2026-09-20
 
 First PyPI release.
