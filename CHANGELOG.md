@@ -43,6 +43,11 @@ versions may include breaking changes).
   chunk, `usage_estimated=False`), 4.2 (`device` from telemetry, not `exported_for`), and 4.5
   (concurrent load retries against the real load-lock).
 
+### Fixed
+- `dev` extra now pulls in `charts` (`dev = [..., "benchrig[charts]"]`) so `pip install -e ".[dev]"` always
+  installs `matplotlib`; `tests/test_report_charts.py` needs it and was failing in CI (and any fresh dev
+  setup) because the `dev` and `charts` extras were independent.
+
 ## [0.1.0] - 2026-09-20
 
 First PyPI release.

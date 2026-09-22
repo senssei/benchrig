@@ -35,7 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8.0"]
 onnx-gpu = ["onnxruntime-genai-cuda"]
-dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine"]
+dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine", "benchrig[charts]"]
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
 
 [project.urls]
