@@ -42,7 +42,11 @@ def make_scorecard_figure(scorecards: list[dict[str, Any]]) -> matplotlib.figure
     labels = [_bar_label(sc) for sc in scorecards]
     heights = [float(sc.get(_PNG_BAR_HEIGHT_KEY, 0) or 0) for sc in scorecards]
     fig, ax = plt.subplots(figsize=(max(6.0, 1.2 * len(scorecards)), 4.5))
-    ax.bar(range(len(scorecards)), heights, tick_label=labels)
+    ax.bar(range(len(scorecards)), heights)
+    ax.set_xticks(range(len(scorecards)))
+    # Rotated and right-aligned so labels (often 30-50+ chars, e.g. "mistral-7b-instruct-v0.2-q4_0 (prism)")
+    # do not run into each other once there are more than a couple of bars.
+    ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.set_ylabel("composite score")
     ax.set_ylim(0, 100)
     ax.set_title("BenchRig scorecards")

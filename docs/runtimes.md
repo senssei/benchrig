@@ -60,6 +60,16 @@ benchrig --runtime prism --models prism:phi-4-mini --suite coding
   finish, BenchRig calls `POST /v1/unload` to free its VRAM/RAM before the next model loads (best-effort: a prism-local server
   older than the endpoint, or any transport error, is logged and ignored, never fails the run).
 - `--pull-recommended --runtime prism` runs `prism pull <model>` and needs the `prism` CLI on `PATH`.
+- Scenario `options` reaching `--runtime prism` (or `--runtime foundry`) can set `top_k` (int), `repetition_penalty`
+  (float) and `stop` (a string or a list of up to 4 non-empty strings) alongside the existing `temperature`,
+  `num_predict`/`max_tokens`, `top_p` and `seed`; each is forwarded verbatim only when present, and a value the
+  server rejects (e.g. a `repetition_penalty <= 0`) comes back as a normal `400` failure result, not a crash.
+  Needs a prism-local build with `top_k`/`repetition_penalty` support (past `v0.2.0`).
+- When a model's response separates reasoning from its answer (prism-local's `reasoning_content`, past `v0.2.0`),
+  BenchRig records the reasoning length as `thinking_chars` and the time to the first *answer* token as
+  `answer_ttft_sec`, the same fields `OllamaClient` already reports for thinking models. `ttft_sec` itself now
+  covers the first token of either kind (reasoning or content) instead of only the first answer token — a more
+  accurate number for a reasoning model, but not directly comparable to a `ttft_sec` recorded before this change.
 
 **Models and engines**
 

@@ -47,6 +47,23 @@ versions may include breaking changes).
   before (Phase 5, item 5.1; spec.md I7). Needs a prism-local build newer than `v0.2.0`
   (`~/03-foundy-local` commit `6d6467a`); best-effort against an older server or a transport error
   (logged, never raised — never fails a run).
+- `FoundryClient.generate()` (and so `PrismClient`, `--runtime foundry`) now forwards `top_k`,
+  `repetition_penalty` and `stop` from scenario `options` into the `/v1/chat/completions` payload when
+  present; they join the existing `temperature`/`num_predict`/`top_p`/`seed` whitelist and were silently
+  dropped before (Phase 6, item 6.1; spec.md I8). Needs a prism-local build with `top_k`/`repetition_penalty`
+  support (past `v0.2.0`); `stop` has been accepted by prism-local since before `v0.2.0` but benchrig never
+  sent it.
+- `FoundryClient.generate()` now reads `reasoning_content` from the response (streaming delta or
+  non-streaming message) and records its length as `thinking_chars`, matching `OllamaClient`'s existing
+  field (Phase 6, item 6.2; spec.md I9). Needs a prism-local build with reasoning separation (past `v0.2.0`).
+
+### Changed
+- `ttft_sec` for `FoundryClient`/`PrismClient` now measures time to the first token of *either* kind
+  (reasoning or content), not only the first answer token; when a response carries `reasoning_content`,
+  the first answer token's time is recorded separately as `answer_ttft_sec` (Phase 6, item 6.2; spec.md
+  I9). This makes reasoning-model `ttft_sec` numbers smaller and more accurate, but **not directly
+  comparable** to `ttft_sec` recorded by an earlier benchrig version for the same model. Responses with no
+  `reasoning_content` are unaffected.
 
 ### Fixed
 - `dev` extra now pulls in `charts` (`dev = [..., "benchrig[charts]"]`) so `pip install -e ".[dev]"` always
@@ -65,6 +82,13 @@ versions may include breaking changes).
   also prints *why* a suite produced no results (`⚠ Skipped — model does not fit in available VRAM: ...`,
   `benchrig/cli.py::_suite_skip_notice`) instead of silently printing the suite header followed by
   nothing.
+- `--chart` bar labels (`<model> (<runtime>)`) are now rotated 30° with right alignment instead of
+  horizontal; with more than a couple of scorecards, or long model names, the horizontal labels ran into
+  each other and became an unreadable strip (found manually from a 6-scorecard chart; Phase 7, item 7.1).
+- A scenario `options` value that cannot be coerced (e.g. `top_k: "many"`, `repetition_penalty: "high"`)
+  now fails that one scenario via the normal `_failure_result` path instead of raising an uncaught
+  `ValueError`/`TypeError` out of `FoundryClient.generate()` and crashing the whole `--runs N` benchmark
+  (Phase 6 independent review finding, fixed 2026-09-22; spec.md I8).
 
 ## [0.1.0] - 2026-09-20
 

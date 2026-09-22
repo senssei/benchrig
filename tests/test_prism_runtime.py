@@ -253,6 +253,98 @@ class UsageTests(unittest.TestCase):
         self.assertFalse(result["usage_estimated"])
 
 
+class ReasoningContentTests(unittest.TestCase):
+    """Phase 6 item 6.2 / spec.md I9: `reasoning_content` (prism-local `4d8567d`) is captured into
+    `thinking_chars`, and `ttft_sec` covers the first token of either kind (reasoning or content)."""
+
+    def stream(self, *chunks):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.iter_lines.return_value = [f"data: {json.dumps(c)}".encode() for c in chunks] + [b"data: [DONE]"]
+        return resp
+
+    def generate(self, *chunks, measure_ttft=True):
+        with (
+            patch("requests.post", return_value=self.stream(*chunks)),
+            patch("requests.get", return_value=response({})),
+        ):
+            return PrismClient().generate("m", "one two three four", measure_ttft=measure_ttft)
+
+    def test_streaming_reasoning_then_content_sets_thinking_chars_and_answer_ttft(self):
+        result = self.generate(
+            {"choices": [{"delta": {"role": "assistant"}}]},
+            {"choices": [{"delta": {"reasoning_content": "let me think"}}]},
+            {"choices": [{"delta": {"content": "42"}, "finish_reason": None}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        )
+        self.assertEqual(result["thinking_chars"], len("let me think"))
+        self.assertIsNotNone(result["answer_ttft_sec"])
+        self.assertGreaterEqual(result["answer_ttft_sec"], result["ttft_sec"])
+
+    def test_non_streaming_reasoning_content_sets_thinking_chars(self):
+        with (
+            patch(
+                "requests.post",
+                return_value=response(
+                    {
+                        "choices": [
+                            {
+                                "message": {"content": "42", "reasoning_content": "thinking..."},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 3, "completion_tokens": 5},
+                    }
+                ),
+            ),
+        ):
+            result = PrismClient().generate("m", "one two three four", measure_ttft=False)
+        self.assertEqual(result["thinking_chars"], len("thinking..."))
+        self.assertEqual(result["response"], "42")
+
+    def test_content_only_response_has_no_thinking_chars(self):
+        """Regression: no reasoning_content anywhere leaves the result exactly as before Phase 6."""
+        result = self.generate(
+            {"choices": [{"delta": {"content": "a"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        )
+        self.assertNotIn("thinking_chars", result)
+        self.assertNotIn("answer_ttft_sec", result)
+
+    def test_reasoning_with_no_content_sets_thinking_chars_but_no_answer_ttft(self):
+        """Review finding (Phase 6): truncated at max_tokens while still 'thinking' — no content ever
+        arrives. thinking_chars must still be set; answer_ttft_sec must stay absent (no answer token
+        exists to time), and the result must not crash."""
+        result = self.generate(
+            {"choices": [{"delta": {"reasoning_content": "thinking hard"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "length"}]},
+        )
+        self.assertEqual(result["thinking_chars"], len("thinking hard"))
+        self.assertNotIn("answer_ttft_sec", result)
+
+    def test_empty_reasoning_content_chunk_is_ignored(self):
+        """Review finding (Phase 6): an empty-string reasoning_content chunk (falsy) must not be counted
+        or start the TTFT clock."""
+        result = self.generate(
+            {"choices": [{"delta": {"reasoning_content": ""}}]},
+            {"choices": [{"delta": {"content": "42"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        )
+        self.assertNotIn("thinking_chars", result)
+
+    def test_reasoning_content_split_across_multiple_chunks_is_accumulated(self):
+        """Review finding (Phase 6): reasoning_content streamed piecemeal must be joined, not just the
+        last chunk kept."""
+        result = self.generate(
+            {"choices": [{"delta": {"reasoning_content": "step one. "}}]},
+            {"choices": [{"delta": {"reasoning_content": "step two."}}]},
+            {"choices": [{"delta": {"content": "answer"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        )
+        self.assertEqual(result["thinking_chars"], len("step one. step two."))
+
+
 class Retry503Tests(unittest.TestCase):
     """Phase 4 item 4.5: prism-local returns 503 with Retry-After: 30 for `server_busy` and
     `insufficient_resources` (prism/server.py:669-671). Benchrig retries up to 3× with the

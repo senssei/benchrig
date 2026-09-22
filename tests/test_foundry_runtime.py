@@ -196,6 +196,73 @@ class TestFoundryClient(unittest.TestCase):
         self.assertEqual(result["prompt_eval_count"], 8)
 
     @patch("requests.post")
+    def test_generate_returns_failure_result_for_a_malformed_top_k(self, mock_post):
+        """Review finding (Phase 6): a bad top_k/repetition_penalty must degrade to one failed scenario
+        (spec.md's `_failure_result` contract), not crash the whole --runs N benchmark with an
+        uncaught ValueError from int()/float()."""
+        result = self.client.generate(
+            model="phi-4",
+            prompt="What is the answer?",
+            options={"top_k": "many"},
+            measure_ttft=False,
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("many", result["error"])
+        mock_post.assert_not_called()
+
+    @patch("requests.post")
+    def test_generate_returns_failure_result_for_a_malformed_repetition_penalty(self, mock_post):
+        result = self.client.generate(
+            model="phi-4",
+            prompt="What is the answer?",
+            options={"repetition_penalty": "high"},
+            measure_ttft=False,
+        )
+        self.assertFalse(result["success"])
+        mock_post.assert_not_called()
+
+    @patch("requests.post")
+    def test_generate_forwards_top_k_repetition_penalty_and_stop(self, mock_post):
+        """spec.md I8: top_k, repetition_penalty and stop are forwarded verbatim when present in options."""
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "42"}}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2},
+        }
+        mock_post.return_value = mock_resp
+
+        self.client.generate(
+            model="phi-4",
+            prompt="What is the answer?",
+            options={"top_k": 40, "repetition_penalty": 1.1, "stop": ["\n\n"]},
+            measure_ttft=False,
+        )
+
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["top_k"], 40)
+        self.assertEqual(payload["repetition_penalty"], 1.1)
+        self.assertEqual(payload["stop"], ["\n\n"])
+
+    @patch("requests.post")
+    def test_generate_omits_sampling_params_when_not_provided(self, mock_post):
+        """spec.md I8: a key absent from options is omitted from the payload, not defaulted."""
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "42"}}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 2},
+        }
+        mock_post.return_value = mock_resp
+
+        self.client.generate(model="phi-4", prompt="What is the answer?", measure_ttft=False)
+
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("top_k", payload)
+        self.assertNotIn("repetition_penalty", payload)
+        self.assertNotIn("stop", payload)
+
+    @patch("requests.post")
     def test_generate_error_handling(self, mock_post):
         """Verify error handling returns structured failure dictionary."""
         mock_post.side_effect = Exception("HTTP 500 Internal Server Error")

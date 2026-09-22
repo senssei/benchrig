@@ -28,6 +28,9 @@ Tests and reviews cite these by number. Changing one needs operator approval.
 | I4 | The CLI never exits non-zero solely because the user picked a slow execution provider. The provider warning is printed once per run, before any model is benchmarked, and the run proceeds. |
 | I5 | When benchrig sends `stream_options={"include_usage": True}` to a Prism server, the result record carries `usage_estimated=False`, `usage={"prompt_tokens", "completion_tokens", "total_tokens"}`, and `telemetry={"device", ...}` exactly as the server reported; absent or malformed usage still sets `usage_estimated=True`. |
 | I6 | A 503 from prism-local with `Retry-After` is retried up to 3× with the server-provided delay (capped at 60 s); after that the run fails with `PrismBusyError` naming the reason from the JSON body. Other 5xx responses (4xx, 500, 502, 504) are NOT retried. |
+| I7 | `PrismClient.unload_model(model)` always sends `POST /v1/unload` to the Prism server and always returns `True`; a failing or missing endpoint is logged, never raised, so `evaluate_model`'s per-model teardown never fails a run because of it. |
+| I8 | `FoundryClient.generate()` forwards `top_k`, `repetition_penalty` and `stop` from `options` verbatim into the `/v1/chat/completions` payload when present, and omits them when absent; a malformed value (from these or the pre-existing `temperature`/`max_tokens`/`top_p`/`seed` options) fails that one scenario via `_failure_result`, never the whole run. |
+| I9 | `FoundryClient.generate()` reads `reasoning_content` from the response (streaming delta or non-streaming message) and sets `thinking_chars` on the result when non-empty; `ttft_sec` reflects the first token of either kind and `answer_ttft_sec` the first content token (omitted when no content token arrives). Behavior for a response with no `reasoning_content` is unchanged. |
 
 ## 3. Failure modes (current behavior)
 
@@ -38,6 +41,7 @@ Tests and reviews cite these by number. Changing one needs operator approval.
 | `--runtime onnx-gpu` selects a `generic-cpu` execution provider on a CUDA host | CLI prints a one-line warning naming the model and the measured slowdown ("generic-cpu on CUDA: 2–22 tok/s for qwen; Phi-3.5-mini may not finish in 5 min"); the run continues and exits 0 (I4) | `benchrig/core/runtimes.py` `warning_for_provider()` |
 | VRAM baseline contains foreign GPU processes (other model, MCP server, IDE daemon) | `vram_baseline_dirty_mb` records the foreign-process VRAM (rounded to MB); `vram_baseline_mb` stays as the whole-GPU used memory (own + foreign); existing `vram_baseline_dirty` boolean keeps its current semantics | `benchrig/core/runner.py` `measure_vram_baseline()` |
 | Prism server returns 503 with `Retry-After` (queue full or load lock contention) | Benchrig retries up to 3× with the server-provided delay (capped at 60 s); after that `PrismBusyError` is raised naming the reason from the JSON body (I6) | `benchrig/core/client.py` retry helper |
+| A scenario's `options` has a sampling value the server rejects, or one that isn't even parseable client-side (e.g. `top_k: "many"`, `repetition_penalty: "high"`) | `FoundryClient.generate()`/`PrismClient.generate()` catches the `TypeError`/`ValueError` from building the payload and returns a normal failed-scenario result (I8); the rest of the run continues | `benchrig/core/client.py` `FoundryClient.generate()` |
 
 ## 4. Planned behavior (not implemented)
 
@@ -47,7 +51,7 @@ A run with `--csv <path>` produces a CSV at `<path>` with one row per scorecard 
 
 `model`, `runtime`, `engine`, `composite_score`, `coding_pass_rate`, `reasoning_accuracy`, `avg_eval_tok_sec`, `avg_ttft_sec`, `peak_vram_mb`, `total_runs`.
 
-A run with `--chart <path>` produces a PNG at `<path>` with one bar per scorecard. The bar height is `composite_score` (0–100); the bar label is `<model> (<runtime>)`. `matplotlib` is imported only inside the chart function; the rest of the CLI must load without it.
+A run with `--chart <path>` produces a PNG at `<path>` with one bar per scorecard. The bar height is `composite_score` (0–100); the bar label is `<model> (<runtime>)`, rotated 30° with right alignment (`ax.set_xticklabels(labels, rotation=30, ha="right")`) so labels do not overlap into an unreadable strip when there are more than a couple of scorecards or the labels are long. `matplotlib` is imported only inside the chart function; the rest of the CLI must load without it.
 
 The Markdown report links to the chart (as `![](chart_path)`) and to the CSV (as `[results](csv_path)`) **only** when those files were produced this run. When neither was produced, the report is unchanged.
 
@@ -84,7 +88,7 @@ Benchrig already implements items 4.1 and 4.2; the items below pin the contract 
 
 These behaviors move up into §2 (I5, I6) once Phase 4 ships.
 
-### Phase 5: Real model unload for Prism (`POST /v1/unload`)
+### Phase 5: Real model unload for Prism (`POST /v1/unload`) — shipped, see I7
 
 Grounded in `~/03-foundy-local` `main` commit `6d6467a` (post-`v0.2.0`; not yet tagged). Contract (`docs/api.md`, `spec.md` P8
 in that repo): `POST /v1/unload` drops the ONNX model held by `ActiveEngineManager`, is idempotent, takes an optional
@@ -108,8 +112,59 @@ and must never fail a benchmark run (matching `FoundryClient.unload_model`'s exi
 build older than `6d6467a`, which has no `/v1/unload` route), or unexpected body is logged at `_log.info` and swallowed;
 `model_name` is used only for the log line, since the server's own response already names the released model id.
 
-These behaviors move up into §2 (I7) once Phase 5 ships.
+Shipped (plan.md Phase 5); the invariant is I7 in §2.
 
-| # | Invariant (planned, becomes I7) |
-|---|---|
-| I7 | `PrismClient.unload_model(model)` always sends `POST /v1/unload` to the Prism server and always returns `True`; a failing or missing endpoint is logged, never raised, so `evaluate_model`'s per-model teardown never fails a run because of it. |
+### Phase 6: Sampling parameter passthrough and reasoning content (`FoundryClient`/`PrismClient`) — shipped, see I8/I9
+
+Grounded in `~/03-foundy-local` `main` commit `e01569c` (`top_k`/`repetition_penalty` on `/v1/chat/completions`, both
+ONNX and Ollama backends) and `4d8567d` (reasoning content separated out of `<think>...</think>` server-side into a
+dedicated `reasoning_content` field), plus the pre-existing `stop` parameter (`4a77b5c`, already in `v0.2.0`) that
+Prism has accepted since before `v0.2.0` but `benchrig` has never sent.
+
+**Gap today:** `FoundryClient.generate()` (`benchrig/core/client.py`, used directly by the `foundry` runtime and
+inherited by `PrismClient`) only forwards `temperature`, `num_predict`/`max_tokens`, `top_p` and `seed` from the
+caller's `options` dict into the JSON payload. A scenario that sets `options: {"top_k": 40, "repetition_penalty": 1.1,
+"stop": ["\n\n"]}` sends those keys to `OllamaClient` (which merges `options` wholesale) but they are silently
+dropped for `foundry`/`prism` — the server never sees them, and no error is raised. Separately, the response's
+`reasoning_content` (delta in streaming, message field in non-streaming) is not read at all: only `content` is
+accumulated, so `thinking_chars` (the field `benchrig.core.runner.BenchmarkRunner._base_record` already forwards
+generically into scorecards, `client.py:310`) is never populated for Foundry/Prism, unlike `OllamaClient` which sets
+it from `thinking`. A side effect: today's `ttft_sec` for Foundry/Prism is measured to the first *content* token,
+because reasoning deltas are invisible to the client — for a reasoning model that thinks before answering, this
+already reports something closer to "answer TTFT" than "first token of any kind" (`OllamaClient`'s contract,
+`client.py:371-372`); Phase 6 makes the two runtimes consistent.
+
+**New behavior:**
+
+1. `FoundryClient.generate()` forwards, when present in `options`:
+   - `top_k` → `top_k` (`int(...)`) in the payload.
+   - `repetition_penalty` → `repetition_penalty` (`float(...)`) in the payload.
+   - `stop` → `stop` in the payload, passed through unchanged (a string or a list of up to 4 non-empty strings —
+     Prism's own limit, `prism/server.py` `MAX_STOP_SEQUENCES`). BenchRig does not validate `stop` client-side; a
+     malformed value gets the server's `400`, which surfaces through the client's normal error handling
+     (`raise_for_status()` → `_failure_result`), not a client-side exception.
+   These join the existing whitelist; a key absent from `options` is still omitted from the payload (no defaults are
+   invented). Building the payload from `options` (this step, and the pre-existing `temperature`/`max_tokens`/`top_p`/
+   `seed` conversions) is wrapped in `try/except (TypeError, ValueError)`: a value that cannot be coerced (e.g.
+   `options={"top_k": "many"}`) returns a normal failed-scenario result via `_failure_result`, the same shape as a
+   request-level failure, instead of raising out of `generate()` and aborting the whole `--runs N` benchmark (review
+   finding, fixed 2026-09-22).
+2. `FoundryClient.generate()` accumulates `reasoning_content` separately from `content`:
+   - Streaming: `choices[0].delta.reasoning_content`, chunk by chunk, alongside the existing `content` accumulation;
+     an empty-string chunk is a no-op (falsy), and pieces across multiple chunks are joined in order.
+   - Non-streaming: `choices[0].message.reasoning_content`.
+   - The result gains `thinking_chars` (`len` of the accumulated reasoning text) **only when non-empty**. This is
+     not byte-for-byte `OllamaClient`'s shape: `OllamaClient` always includes `thinking_chars` (0 when there was
+     none) and `answer_ttft_sec` (`None` when there was no reasoning), while `FoundryClient` omits both keys
+     entirely when there is no reasoning content. Every consumer (`runner.py:310` `resp.get("thinking_chars")`,
+     `runner.py:312-313` `resp.get("answer_ttft_sec")`, `runner.py:444` `resp.get("thinking_chars", 0)`) reads both
+     shapes identically, so this is a documented difference, not a bug.
+   - `ttft_sec` is measured to the first token of *either* kind (reasoning or content), matching `OllamaClient`;
+     `answer_ttft_sec` records the first *content* token's time separately when reasoning preceded it, and is
+     omitted (not `None`) when no content token ever arrives (e.g. truncated at `max_tokens` while still
+     reasoning). When no `reasoning_content` is present in the response, `ttft_sec` is computed exactly as today
+     (first content token) — no behavior change for non-reasoning models.
+3. `PrismClient` needs no override: it inherits the fixed `FoundryClient.generate()`. The plain `foundry` runtime
+   gets the same fix, since Foundry Local's own OpenAI-compatible endpoint accepts the same OpenAI parameter names.
+
+Shipped (plan.md Phase 6, reviewed); the invariants are I8 and I9 in §2.

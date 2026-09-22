@@ -715,6 +715,7 @@ class FoundryClient(BaseRuntimeClient):
         Captures Time to First Token (TTFT) via Server-Sent Events streaming.
         Automatically loads model if not yet placed into memory by the daemon.
         """
+        start_wall_time = time.perf_counter()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -728,24 +729,36 @@ class FoundryClient(BaseRuntimeClient):
         if measure_ttft:
             payload["stream_options"] = {"include_usage": True}
 
-        if options:
-            if "temperature" in options:
-                payload["temperature"] = float(options["temperature"])
-            if "num_predict" in options:
-                payload["max_tokens"] = int(options["num_predict"])
-            elif "max_tokens" in options:
-                payload["max_tokens"] = int(options["max_tokens"])
-            if "top_p" in options:
-                payload["top_p"] = float(options["top_p"])
-            if "seed" in options:
-                payload["seed"] = int(options["seed"])
+        try:
+            if options:
+                if "temperature" in options:
+                    payload["temperature"] = float(options["temperature"])
+                if "num_predict" in options:
+                    payload["max_tokens"] = int(options["num_predict"])
+                elif "max_tokens" in options:
+                    payload["max_tokens"] = int(options["max_tokens"])
+                if "top_p" in options:
+                    payload["top_p"] = float(options["top_p"])
+                if "seed" in options:
+                    payload["seed"] = int(options["seed"])
+                if "top_k" in options:
+                    payload["top_k"] = int(options["top_k"])
+                if "repetition_penalty" in options:
+                    payload["repetition_penalty"] = float(options["repetition_penalty"])
+                if "stop" in options:
+                    payload["stop"] = options["stop"]
+        except (TypeError, ValueError) as e:
+            # A malformed sampling option (e.g. options={"top_k": "many"}) must fail this one scenario, not
+            # crash the whole --runs N benchmark with an uncaught exception from int()/float().
+            return self._failure_result(model, e, start_wall_time)
 
         if "max_tokens" not in payload and self.default_max_tokens:
             payload["max_tokens"] = self.default_max_tokens
 
-        start_wall_time = time.perf_counter()
-        first_token_time: float | None = None
+        first_token_time: float | None = None  # first token of any kind: reasoning or content
+        first_answer_time: float | None = None  # first *content* (answer) token
         collected_response: list[str] = []
+        collected_reasoning: list[str] = []
         reported_usage: dict[str, Any] | None = None
         reported_telemetry: dict[str, Any] | None = None  # e.g. Prism reports the device that ran the request
         finish_reason: str | None = None  # "stop" or "length" (token budget exhausted)
@@ -812,18 +825,28 @@ class FoundryClient(BaseRuntimeClient):
                     if choices:
                         finish_reason = choices[0].get("finish_reason") or finish_reason
                         delta = choices[0].get("delta", {})
+                        reasoning_piece = delta.get("reasoning_content", "")
                         content_piece = delta.get("content", "")
-                        if content_piece:
+                        if reasoning_piece:
                             if first_token_time is None:
                                 first_token_time = time.perf_counter()
+                            collected_reasoning.append(reasoning_piece)
+                        if content_piece:
+                            now = time.perf_counter()
+                            if first_token_time is None:
+                                first_token_time = now
+                            first_answer_time = first_answer_time or now
                             collected_response.append(content_piece)
             else:
                 data = r.json()
                 choices = data.get("choices", [])
                 if choices:
                     finish_reason = choices[0].get("finish_reason") or finish_reason
-                    content_piece = choices[0].get("message", {}).get("content", "")
-                    collected_response.append(content_piece)
+                    message = choices[0].get("message", {})
+                    collected_response.append(message.get("content", ""))
+                    reasoning_piece = message.get("reasoning_content", "")
+                    if reasoning_piece:
+                        collected_reasoning.append(reasoning_piece)
                 reported_usage = data.get("usage")
                 if isinstance(data.get("telemetry"), dict):
                     reported_telemetry = data["telemetry"]
@@ -834,6 +857,7 @@ class FoundryClient(BaseRuntimeClient):
             return self._failure_result(model, e, start_wall_time)
 
         response_text = "".join(collected_response)
+        reasoning_text = "".join(collected_reasoning)
 
         # Token telemetry resolution
         if reported_usage:
@@ -860,8 +884,11 @@ class FoundryClient(BaseRuntimeClient):
 
         eval_tok_sec = eval_count / eval_duration_sec if eval_duration_sec > 0 else 0.0
         prompt_tok_sec = prompt_eval_count / ttft_sec if ttft_sec > 0 else 0.0
+        # Same floor as ttft_sec: a mocked/instant response can round both to 0.000, but answer_ttft_sec must
+        # never be measurably earlier than ttft_sec (the answer token cannot arrive before the first token).
+        answer_ttft_sec = round(max(ttft_sec, first_answer_time - start_wall_time), 3) if first_answer_time else None
 
-        return {
+        result = {
             "success": True,
             "model": model,
             "runtime": self.name,
@@ -883,6 +910,11 @@ class FoundryClient(BaseRuntimeClient):
                 "telemetry": reported_telemetry,
             },
         }
+        if reasoning_text:
+            result["thinking_chars"] = len(reasoning_text)
+            if answer_ttft_sec is not None:
+                result["answer_ttft_sec"] = answer_ttft_sec
+        return result
 
 
 class PrismClient(FoundryClient):

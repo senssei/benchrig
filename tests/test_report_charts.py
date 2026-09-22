@@ -70,6 +70,22 @@ class ChartExportTests(unittest.TestCase):
             [f"{sc['model']} ({sc.get('runtime', 'unknown')})" for sc in scorecards],
         )
 
+    def test_bar_labels_are_rotated_to_avoid_overlap(self):
+        """Bug fix (plan.md Phase 7): horizontal labels overlap into an unreadable strip once there are more
+        than a couple of scorecards. Labels must be rotated 30° with right alignment (spec.md Phase 1)."""
+        from benchrig.reporting.charts import make_scorecard_figure
+
+        scorecards = [
+            card("mistral-7b-instruct-v0.2-q4_0", runtime="prism", composite_score=71.0),
+            card("phi-4-mini", runtime="foundry", composite_score=45.0),
+            card("nomic-embed-text-v1.5", runtime="ollama", composite_score=45.0),
+        ]
+        fig = make_scorecard_figure(scorecards)
+        ax = fig.axes[0]
+        for tick_label in ax.get_xticklabels():
+            self.assertEqual(tick_label.get_rotation(), 30, "bar label is not rotated; will overlap")
+            self.assertEqual(tick_label.get_horizontalalignment(), "right")
+
     def test_charts_module_does_not_import_matplotlib_at_module_load(self):
         # Drop matplotlib from sys.modules to make the assertion meaningful.
         for mod in [m for m in list(sys.modules) if m == "matplotlib" or m.startswith("matplotlib.")]:

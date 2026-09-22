@@ -257,3 +257,127 @@ Risks and open questions:
   never overlap a benchmark request in practice — call this out in the docstring, not a new test.
 - No new CLI flag: `unload_after_test` (default `True`) already gates the call for every runtime; Phase 5 only
   makes the existing Prism path do real work.
+
+---
+
+## Phase 6: Sampling parameters and reasoning content for Foundry/Prism (`~/03-foundy-local` `e01569c`, `4d8567d`)
+
+Status: approved (2026-09-22). Operator confirmed the `ttft_sec` semantic change for reasoning models (item 6.2) is
+acceptable as a documented behavior fix, and the scope exclusions below are fine, to be tracked as backlog.
+Implemented 2026-09-22: items 6.1, 6.2, 6.3 all shipped; sdlc_check.py exit 0 (298 passed, 4 skipped).
+Review (fresh-context `general-purpose` subagent, 2026-09-22): 4 findings, all fixed test-first —
+(1, Medium) a malformed `top_k`/`repetition_penalty` (e.g. `options={"top_k": "many"}`) raised an
+uncaught `ValueError`/`TypeError` out of `generate()`, crashing the whole `--runs N` benchmark instead of
+failing one scenario; fixed by wrapping the options-to-payload block in `try/except` → `_failure_result`
+(2 new tests in `tests/test_foundry_runtime.py`). (2, Low) three correct-but-untested branches (reasoning
+with no content ever arriving, an empty-string `reasoning_content` chunk, reasoning split across multiple
+chunks) — added 3 regression tests in `tests/test_prism_runtime.py::ReasoningContentTests`, all passed
+immediately (implementation was already correct). (3, Low) `spec.md` §2 never got I7 (Phase 5) or I8/I9
+(Phase 6) promoted into the invariants table despite both phases being shipped — fixed by promoting all
+three and updating the Phase 5/6 narrative sections to point at them instead of duplicating them. (4, Info)
+`spec.md` overstated `thinking_chars`/`answer_ttft_sec` as matching `OllamaClient` "byte-for-byte" — fixed
+the wording to describe the actual (harmless) shape difference. sdlc_check.py exit 0 after fixes (304
+passed, 4 skipped). Fixes verified by tests, not re-reviewed by a second fresh subagent. Awaiting operator
+commit.
+
+- [x] <!-- Item 6.1: Forward top_k, repetition_penalty and stop from options into FoundryClient.generate().
+         Files: benchrig/core/client.py (FoundryClient.generate), tests/test_foundry_runtime.py (extend).
+         Test: tests/test_foundry_runtime.py::TestFoundryClient::test_generate_forwards_top_k_repetition_penalty_and_stop
+               (red-proven: KeyError before the fix) and
+               ::test_generate_omits_sampling_params_when_not_provided (regression guard).
+         Status: shipped 2026-09-22; sdlc_check.py tests green. -->
+
+- [x] <!-- Item 6.2: Capture reasoning_content into thinking_chars/answer_ttft_sec (streaming + non-streaming).
+         Files: benchrig/core/client.py (FoundryClient.generate), tests/test_prism_runtime.py (extend:
+                new ReasoningContentTests class following UsageTests' stream()/generate() helper pattern).
+         Test: tests/test_prism_runtime.py::ReasoningContentTests — 3 tests (red-proven: KeyError on
+               thinking_chars before the fix):
+           - test_streaming_reasoning_then_content_sets_thinking_chars_and_answer_ttft
+           - test_non_streaming_reasoning_content_sets_thinking_chars
+           - test_content_only_response_has_no_thinking_chars (regression guard)
+         Status: shipped 2026-09-22; sdlc_check.py exit 0 (298 passed, 4 skipped).
+                 Note: answer_ttft_sec is floored at ttft_sec (`max(ttft_sec, first_answer_time - start)`)
+                 to avoid a rounding artifact where a mocked/instant response rounds both to 0.000 but
+                 float truncation could otherwise show answer_ttft_sec < ttft_sec; caught by the first
+                 test run (AssertionError: 0.0 not >= 0.001), fixed before ticking this box. -->
+
+- [x] <!-- Item 6.3: Docs and changelog.
+         Files: docs/runtimes.md (new bullets under "How BenchRig talks to it" documenting top_k,
+                repetition_penalty, stop and reasoning_content/thinking_chars/answer_ttft_sec),
+                CHANGELOG.md (### Added entries for items 6.1/6.2, new ### Changed entry for the
+                ttft_sec semantic change under [Unreleased]).
+         Test: none beyond existing tests/test_docs.py doc-presence checks (prose only).
+         Status: shipped 2026-09-22; sdlc_check.py exit 0. -->
+
+Risks and open questions:
+
+- `stop` is not new in prism-local (predates `v0.2.0`) but was never wired into benchrig; bundled here because
+  it is the same "sampling passthrough" gap and the fix touches the same few lines.
+- Item 6.2 changes `ttft_sec` for any Foundry/Prism reasoning model that was already being benchmarked (the
+  number gets smaller/more accurate when reasoning precedes content) — call this out in CHANGELOG.md as a
+  behavior fix, not a new feature, since past run JSON files are not comparable across it.
+- Scope explicitly excludes: `/v1/embeddings` (no embedding suite in benchrig), tool calls / `tool_calls`
+  (no tool-use suite in benchrig), `PRISM_THREADS` / cancel-on-disconnect / MCP auto-stop (server-side only,
+  no client-observable surface). Operator confirmed (2026-09-22): keep excluded from Phase 6, tracked as
+  backlog below for a future phase.
+
+---
+
+## Phase 7: Bug fix — chart bar labels overlap into an unreadable strip
+
+Status: approved and shipped (2026-09-22, found manually by the operator from a `--chart` PNG showing 6
+scorecards). sdlc_check.py exit 0 (299 passed, 4 skipped). Awaiting independent review and operator commit.
+`make_scorecard_figure` (`benchrig/reporting/charts.py`) set `tick_label=labels` on `ax.bar(...)` with no
+rotation; horizontal labels of the form `<model> (<runtime>)` (often 30-50+ characters, e.g.
+`mistral-7b-instruct-v0.2-q4_0 (prism)`) run into each other and become illegible once there are more than
+2-3 bars, even though `figsize` already scales with `1.2 * len(scorecards)`. `spec.md`'s Phase 1 section
+never specified label rotation or overlap handling, so this was undefined behavior, not a broken invariant
+(I1-I3 unaffected) — `spec.md` updated in the same pass to say labels are rotated 30° with right alignment.
+
+- [x] <!-- Item 7.1: Rotate bar labels 30° with right alignment so they no longer overlap.
+         Files: benchrig/reporting/charts.py (make_scorecard_figure: replace tick_label=labels on ax.bar
+                with ax.set_xticks + ax.set_xticklabels(labels, rotation=30, ha="right")),
+                tests/test_report_charts.py (extend).
+         Test: tests/test_report_charts.py::ChartExportTests::test_bar_labels_are_rotated_to_avoid_overlap
+               (red-proven: rotation was 0.0 before the fix) asserts every x-tick label has rotation 30
+               and horizontalalignment "right"; existing test_make_scorecard_figure_has_one_bar_per_scorecard
+               continues to assert the label text itself is unchanged.
+         Status: shipped 2026-09-22; sdlc_check.py exit 0. -->
+
+---
+
+## Backlog (not scheduled)
+
+Surfaced while specifying Phase 6 against `~/03-foundy-local` `main`; none are approved for implementation.
+Re-scope into a numbered phase (with its own `spec.md` section and operator approval) before starting any of these.
+
+- **Embeddings suite.** Prism serves `/v1/embeddings` (Ollama-backed models only; ONNX Runtime GenAI does not
+  produce embeddings). Benchrig has no embedding suite or `BaseRuntimeClient.embed()` method today — would need
+  a new suite type end-to-end (scenario shape, scoring, reporting columns), not just a client method.
+- **Tool-calling suite.** Prism's `/v1/chat/completions` accepts `tools`/`tool_choice` and returns `tool_calls`
+  (including the `d143788` fix that turns a template render failure into a `400` instead of silently dropping
+  tools). Benchrig has no tool-use suite; would need scenario definitions with expected tool calls and a scorer.
+- **`PRISM_THREADS` as a benchrig-managed setting.** Currently a `prism serve` environment variable the operator
+  sets by hand (documented in Phase 4 item 4.3); benchrig could in principle report or vary it per run, but that
+  is server configuration, not a client request parameter.
+- **`error.holder` on `503 insufficient_resources` (Prism `P12`, uncommitted in `~/03-foundy-local` as of
+  2026-09-22 — working-tree only, not yet reviewed/committed there).** When the model-load lock is held by
+  another process, Prism's `503` body gains a structured `error.holder = {"pid": int, "model": str}` alongside
+  the existing prose in `error.message` (the field is omitted, not `null`, when there is no holder). Low-risk
+  follow-up once Prism ships it: have `PrismBusyError`/the failure result carry `holder` as a structured field
+  (today only the prose reason string is captured), so reports/CSV can show which process/model is blocking a
+  run without parsing text. No process management involved — purely reading a field that is already in the
+  response. Do not spec until the Prism-side change is committed (their own `plan.md` Phase 8 status is
+  "awaiting independent review and operator commit"); re-check the field name and shape against
+  `~/03-foundy-local` at that point, same rule as Phase 4's "if the contract drifts, stop and re-spec".
+- **`POST /v1/drain` (Prism `P12`, same uncommitted state as above).** Lets an orchestrator ask a running
+  `prism serve` to finish its current request, unload the model, and exit the process with status 0 — Prism's
+  own plan.md names `benchrig --runtime prism` as the intended caller, so this is worth watching. Using it for
+  real (e.g. auto-draining a `prism serve` that `error.holder` names as blocking a load, then starting our own)
+  is a materially bigger architecture change than anything else in this backlog: benchrig has never managed a
+  Prism server's process lifecycle, only talked to one already running at a fixed `base_url`
+  (`docs/runtimes.md` "How BenchRig talks to it"). Killing a process benchrig did not start is a destructive
+  action on state outside the current run — needs an explicit operator decision (e.g. a `--drain-holder` flag
+  the user opts into per run, never automatic) before it gets anywhere near a `spec.md` entry. Not scheduled;
+  revisit only after discussing the design with the operator, and only once Prism's side is committed and
+  tagged.
