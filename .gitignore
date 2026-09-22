@@ -56,10 +56,11 @@ htmlcov/
 *.swo
 *~
 
-# Benchmark runs & runtime outputs
-results/*.json
-results/*.md
-results/runs/*.json
+# Benchmark runs & runtime outputs (including nested --output-dir targets, e.g. results/smoke/)
+results/**/*.json
+results/**/*.md
+results/**/*.png
+results/**/*.csv
 !results/.gitkeep
 !results/runs/.gitkeep
 *.log

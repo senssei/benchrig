@@ -29,6 +29,8 @@ benchrig [OPTIONS]
 | **`--scenarios-dir`** | `path` | `None` | Scenario JSON directory. Lookup order: `--scenarios-dir`, `./scenarios`, then the bundled scenarios. |
 | **`--version`** | `flag` | `false` | Prints the installed version and exits. |
 | **`--output-dir`** | `string` | `results` | Path to directory where run summaries (`LATEST_SUMMARY.md`) and raw JSON run data are persisted. |
+| **`--csv`** | `path` | `None` | Writes a CSV of the run's scorecards to this path and links it from `LATEST_SUMMARY.md`. |
+| **`--chart`** | `path` | `None` | Writes a PNG chart (one bar per scorecard) to this path and embeds it in `LATEST_SUMMARY.md`. Requires the `[charts]` extra (`pip install -e ".[charts]"`). |
 
 ---
 
@@ -103,3 +105,4 @@ Upon completing an evaluation, `benchrig` generates:
 1. **Interactive Terminal Leaderboard**: Formatted using Rich with medals (🥇, 🥈, 🥉), composite rankings, VRAM status alerts, and cloud cost savings estimates.
 2. **`results/LATEST_SUMMARY.md`**: Markdown report detailing individual scenario assertion passes, TTFT, speed, and cross-engine comparison deltas.
 3. **`results/runs/benchmark_<timestamp>.json`**: Raw machine-readable telemetry and scores for CI/CD or historical trend analysis.
+4. **`--csv`/`--chart` (opt-in)**: a scorecards CSV and/or a PNG bar chart, written where requested and linked/embedded from `LATEST_SUMMARY.md`.

@@ -131,6 +131,43 @@ class PrismClientTests(unittest.TestCase):
         self.assertIsInstance(create_runtime_client("prism-local", {}), PrismClient)
 
 
+class UnloadModelTests(unittest.TestCase):
+    """Phase 5 (spec.md I7): `PrismClient.unload_model` calls `POST /v1/unload` on prism-local HEAD (6d6467a),
+    instead of the inherited `FoundryClient.unload_model` no-op (which only acts when discovered via the
+    `foundry` CLI, never true for Prism)."""
+
+    def setUp(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PRISM_API_KEY", None)
+            self.client = PrismClient()
+
+    @patch("requests.post")
+    def test_unload_model_posts_to_v1_unload(self, mock_post):
+        mock_post.return_value = response({"unloaded": True, "model": "phi-4-mini"})
+        self.assertTrue(self.client.unload_model("phi-4-mini"))
+        mock_post.assert_called_once()
+        self.assertEqual(mock_post.call_args.args[0], "http://127.0.0.1:5272/v1/unload")
+
+    @patch("requests.post")
+    def test_unload_model_sends_the_bearer_token_when_api_key_is_set(self, mock_post):
+        mock_post.return_value = response({"unloaded": False, "model": None})
+        keyed = PrismClient(api_key="secret")
+        self.assertTrue(keyed.unload_model("phi-4-mini"))
+        self.assertEqual(mock_post.call_args.kwargs["headers"], {"Authorization": "Bearer secret"})
+
+    @patch("requests.post", side_effect=OSError("connection refused"))
+    def test_unload_model_is_best_effort_on_transport_error(self, mock_post):
+        self.assertTrue(self.client.unload_model("phi-4-mini"))
+        mock_post.assert_called_once()
+
+    @patch("requests.post")
+    def test_unload_model_is_best_effort_on_404_from_an_older_prism_server(self, mock_post):
+        mock_post.return_value = response({"error": {"message": "not found"}}, status=404)
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("404")
+        self.assertTrue(self.client.unload_model("phi-4-mini"))
+        mock_post.assert_called_once()
+
+
 class UsageTests(unittest.TestCase):
     """Token counts are the server's when it reports `usage`, and marked as estimates when it does not."""
 

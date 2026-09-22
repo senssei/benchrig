@@ -935,6 +935,23 @@ class PrismClient(FoundryClient):
         active = self._health().get("active_model")
         return [{"name": active}] if active else []
 
+    def unload_model(self, model_name: str) -> bool:
+        """`POST /v1/unload` to free the resident ONNX model's VRAM/RAM (prism-local HEAD `6d6467a`, post-`v0.2.0`).
+
+        Best-effort, like `FoundryClient.unload_model`: any transport error or non-2xx status (including a `404`
+        from a prism-local build that predates this endpoint) is logged and swallowed, never raised, so it never
+        fails a benchmark run.
+
+        The server holds the engine lock for the call, so if a generation is still in flight this blocks until it
+        finishes; the request can take seconds, not just round-trip latency.
+        """
+        try:
+            r = requests.post(self._get_api_endpoint("unload"), timeout=self.timeout_sec, **self._request_kwargs())
+            r.raise_for_status()
+        except Exception:
+            _log.info("prism-local /v1/unload failed for %s (continuing)", model_name, exc_info=True)
+        return True
+
     def get_version(self) -> str:
         """Prism has no version endpoint; report what `/health` says about the accelerator."""
         health = self._health()

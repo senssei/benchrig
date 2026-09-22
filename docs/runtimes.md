@@ -56,7 +56,9 @@ benchrig --runtime prism --models prism:phi-4-mini --suite coding
 - The endpoint comes from `prism.base_url` (default `http://127.0.0.1:5272/v1`) and is never auto-discovered. The `foundry` CLI is
   never used, so a Foundry daemon running on the same machine cannot capture the requests.
 - If the server was started with `--api-key`, set `PRISM_API_KEY` (or `prism.api_key`); it is sent as a bearer token.
-- Prism loads models on the first request and has nothing to unload, so `load_model` only checks that the server lists the model.
+- Prism loads models on the first request, so `load_model` only checks that the server lists the model. After a model's suites
+  finish, BenchRig calls `POST /v1/unload` to free its VRAM/RAM before the next model loads (best-effort: a prism-local server
+  older than the endpoint, or any transport error, is logged and ignored, never fails the run).
 - `--pull-recommended --runtime prism` runs `prism pull <model>` and needs the `prism` CLI on `PATH`.
 
 **Models and engines**
@@ -75,8 +77,10 @@ ONNX.
 - Prism started from a version with `stream_options.include_usage` sends exact token counts in the last streamed chunk, together with its device
   telemetry. From an older Prism, or any server that sends no `usage`, BenchRig estimates the prompt tokens (word count x 1.3) and counts streamed chunks as
   generated tokens; such results are marked `usage_estimated` and the reports say so, because prefill and decode speeds then depend on the guess.
-- Prism holds one model at a time and has no unload. When a model is still loaded as the next one is benchmarked, the "model memory" figure is left out
-  (`vram_baseline_dirty`), because peak minus a baseline that contains the previous model would be too small. Restart `prism serve` between models for it.
+- Prism holds one model at a time. BenchRig unloads it via `POST /v1/unload` after its suites finish (needs a prism-local
+  newer than `v0.2.0`); on an older server that call is a no-op, and if a model is still loaded as the next one is
+  benchmarked, the "model memory" figure is left out (`vram_baseline_dirty`), because peak minus a baseline that contains
+  the previous model would be too small. Restart `prism serve` between models to work around that on an older server.
 
 **GPU memory on long prompts**
 

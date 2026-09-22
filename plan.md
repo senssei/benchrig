@@ -15,7 +15,11 @@ Status: approved (2026-09-21).
          Test: tests/test_report_csv.py::test_csv_export_writes_one_row_per_scorecard_with_expected_columns
                uses a synthetic scorecard list and asserts the CSV at the requested path has the header
                SCORECARD_CSV_COLUMNS from benchrig/reporting/csv_export.py and one row per scorecard.
-         Status: shipped 2026-09-21; sdlc_check.py exit 0. -->
+         Status: shipped 2026-09-21; sdlc_check.py exit 0. **Correction (2026-09-22):** the "shipped"
+                 status above only covered `benchrig/reporting/csv_export.py`; `benchrig/cli.py` never
+                 got the `--csv` flag and `reporting/__init__.py` never exported the function, so the CLI
+                 raised "unrecognized arguments: --csv". Fixed in the same pass as item 1.2's correction
+                 (tests/test_cli_report_flags.py); see that item's note. -->
 
 - [x] <!-- Item 1.2: PNG chart of composite score per runtime/model.
          Files: benchrig/reporting/charts.py (new), benchrig/reporting/__init__.py (export),
@@ -23,7 +27,16 @@ Status: approved (2026-09-21).
          Test: tests/test_report_charts.py::test_chart_export_writes_png_with_one_bar_per_scorecard
                generates a chart from a synthetic scorecard list, asserts the output PNG is non-empty,
                and asserts the bar count equals len(scorecards).
-         Status: shipped 2026-09-21; sdlc_check.py exit 0. -->
+         Status: shipped 2026-09-21; sdlc_check.py exit 0. **Correction (2026-09-22):** same gap as item
+                 1.1 — `benchrig/cli.py` never got the `--chart` flag, so `benchrig --chart out.png` raised
+                 "unrecognized arguments" (caught by the user running it, not by the gate: no test exercised
+                 the CLI's argument parser or `save_outputs()` for these flags). Fixed: `build_parser()` now
+                 registers `--csv`/`--chart`, `reporting/__init__.py` exports both writers, and
+                 `save_outputs()` calls them and passes `chart_path`/`csv_path` (relative to the report's
+                 directory) into `generate_markdown_report`. New test:
+                 tests/test_cli_report_flags.py (flags registered, `save_outputs` writes/skips the
+                 artifacts, markdown links them). docs/cli.md and CHANGELOG.md updated;
+                 sdlc_check.py exit 0. -->
 
 - [x] <!-- Item 1.3: Markdown report links to the chart and CSV.
          Files: benchrig/reporting/markdown.py (add image + csv links), tests/test_report_markdown.py (new).
@@ -152,6 +165,38 @@ Status: approved (2026-09-21). Re-specified against the actual contract in `~/03
                  retry on 503 with Retry-After, give-up after budget (generate path: failure result carries
                  the reason), give-up after budget (helper path: PrismBusyError), no retry on 500. -->
 
+- [x] <!-- Item 4.6 (real code, bug fix): short-circuit remaining scenarios once a model shows a
+         persistent `insufficient_resources` failure, instead of retrying every scenario in every suite.
+         Found manually 2026-09-22: `benchrig --runtime all --suite all` on a model that does not fit in
+         available VRAM retried 503 (4 attempts, with backoff) for EVERY scenario in EVERY suite —
+         dozens of near-identical error lines and minutes of wasted retries for a condition that cannot
+         change mid-run (nothing frees VRAM between scenarios). `server_busy` (queue full) is NOT covered
+         — it can clear on its own, so it keeps retrying per scenario as before (item 4.5).
+         Files: benchrig/core/runner.py (`BenchmarkRunner._capacity_exhausted_reason`,
+                `_capacity_error`, guards in `_run_suite` and `run_context_suite`),
+                tests/test_runner_capacity_shortcircuit.py (new).
+         Test: tests/test_runner_capacity_shortcircuit.py —
+           - test_persistent_capacity_failure_stops_remaining_scenarios_in_the_suite: 5 scenarios, first
+             fails with `insufficient_resources` → only 1 ran.
+           - test_persistent_capacity_failure_skips_later_suites_for_the_same_model: coding suite trips
+             it → the next suite call on the same `BenchmarkRunner` makes zero HTTP calls.
+           - test_transient_busy_failure_does_not_short_circuit: `server_busy` failures still retry every
+             scenario (regression guard against over-broadening the marker list).
+         Status: shipped 2026-09-22; sdlc_check.py tests green (the 2 live-Prism failures in the same
+                 run are unrelated real VRAM contention on the host, not a code regression — see
+                 tests/test_prism_runtime_live.py, which needs the host to actually have ~9.3 GB free).
+                 **Follow-up (same day):** the short-circuit was silent — `BenchmarkRunner._notify`
+                 (the "skipping" message) never reaches the terminal because `benchrig/cli.py` never
+                 passes a `progress_callback` when constructing `BenchmarkRunner`. Confirmed live by the
+                 operator: `--suite all` on an oversized model printed "Running coding/reasoning/polish
+                 tests..." with zero scenario lines under each and no explanation. Fixed with a public
+                 `BenchmarkRunner.capacity_exhausted_reason` property and
+                 `benchrig/cli.py::_suite_skip_notice` (pure function: no notice when the suite actually
+                 ran or had nothing to run; the capacity reason otherwise), called from `evaluate_model`'s
+                 suite loop to print "⚠ Skipped — model does not fit in available VRAM: ...". New tests:
+                 tests/test_cli_capacity_skip_notice.py. sdlc_check.py tests green
+                 (--ignore=tests/test_prism_runtime_live.py; live suite needs free host VRAM), lint clean. -->
+
 Risks and open questions:
 
 - Prism-local HEAD is post-v0.2.0; contracts here may shift again before 0.3.0. Re-read at the start of each
@@ -167,3 +212,48 @@ Risks and open questions:
 
 The original prelim sub-items (4.1-prelim / 4.2-prelim / 4.3-prelim) are now subsumed by items 4.1, 4.2
 and the regression tests in 4.5. No separate prelim phase.
+
+---
+
+## Phase 5: Real model unload for Prism (`POST /v1/unload`, prism-local HEAD `6d6467a`)
+
+Status: approved (2026-09-22); implemented and independently reviewed (fresh-context `general-purpose`
+subagent). Review: 1 finding (docstring omitted the engine-lock/blocking note this phase's own "Risks and
+open questions" asked for) — fixed directly (docs-only, no new test needed); everything else (URL, auth
+header, exception scope, timeout, red-first test evidence, patch scope, no secret leakage) checked out
+clean. sdlc_check.py exit 0 after the fix. Not re-reviewed independently a second time (docstring-only
+change, verified by re-running the gate). Awaiting operator decision to commit/ship.
+
+- [x] <!-- Item 5.1: `PrismClient.unload_model()` calls `POST /v1/unload` instead of the inherited Foundry-CLI no-op.
+         Files: benchrig/core/client.py (PrismClient.unload_model, new override),
+                tests/test_prism_runtime.py (extend).
+         Test: tests/test_prism_runtime.py — new `UnloadModelTests` class:
+           - test_unload_model_posts_to_v1_unload: mocked `requests.post` asserts the call URL is
+             `<base_url>/unload` and the method returns True.
+           - test_unload_model_sends_the_bearer_token_when_api_key_is_set: same, with `api_key="secret"`,
+             asserts `headers == {"Authorization": "Bearer secret"}`.
+           - test_unload_model_is_best_effort_on_transport_error: `requests.post` raises `OSError`;
+             asserts `unload_model()` still returns True and does not raise.
+           - test_unload_model_is_best_effort_on_404_from_an_older_prism_server: `requests.post` returns a
+             404 response (`raise_for_status` raises `requests.HTTPError`); asserts `unload_model()` still
+             returns True.
+         Status: shipped 2026-09-22; sdlc_check.py exit 0 (293 passed, 4 skipped). -->
+
+- [x] <!-- Item 5.2: Docs and changelog.
+         Files: docs/runtimes.md ("How BenchRig talks to it" and "Token counts and the model-only memory
+                figure" bullets updated — both previously said Prism "has nothing to unload" / "has no
+                unload", now stale; corrected to describe the real `POST /v1/unload` call and its
+                best-effort fallback on an older server), CHANGELOG.md (`### Added` entry under
+                `[Unreleased]`).
+         Test: none beyond the existing `tests/test_docs.py` doc-presence checks; this item is prose only.
+         Status: shipped 2026-09-22; sdlc_check.py exit 0. -->
+
+Risks and open questions:
+
+- prism-local `6d6467a` is not yet tagged (post-`v0.2.0`, pre-`v0.3.0`); if the response shape changes before
+  release, re-check `~/03-foundy-local` `docs/api.md` and `spec.md` P8 before shipping this phase.
+- The unload call is synchronous and can block for seconds if a generation is in flight (the server holds the
+  engine lock); `evaluate_model` already runs unload after all suites for the model finish, so this should
+  never overlap a benchmark request in practice — call this out in the docstring, not a new test.
+- No new CLI flag: `unload_after_test` (default `True`) already gates the call for every runtime; Phase 5 only
+  makes the existing Prism path do real work.

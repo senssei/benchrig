@@ -24,6 +24,7 @@ from benchrig.core.client import BaseRuntimeClient, create_runtime_client
 from benchrig.core.hardware import get_system_specs
 from benchrig.core.runner import BenchmarkRunner
 from benchrig.core.runtimes import runtime_label, warning_for_provider
+from benchrig.reporting import write_scorecards_chart, write_scorecards_csv
 from benchrig.reporting.display import (
     console,
     display_1to1_comparison,
@@ -123,6 +124,21 @@ def _warn_slow_provider(targets: list[tuple[str, str]], specs: dict[str, Any]) -
             if msg and not warned:
                 console.print(f"[bold yellow]⚠ {msg}[/]\n")
                 warned = True
+
+
+def _suite_skip_notice(
+    runner: BenchmarkRunner, suite_results: list[dict[str, Any]], requested_scenarios: list[dict[str, Any]]
+) -> str | None:
+    """The reason to show the operator when a suite produced no results despite having scenarios to run.
+
+    `None` when the suite actually ran (or had nothing to run in the first place, e.g. an empty scenario
+    file) — only a *silent* empty result, caused by `BenchmarkRunner`'s capacity short-circuit (plan.md
+    item 4.6), gets a message. Without this, `--suite all` prints "Running coding tests..." followed by
+    nothing, with no indication that the model simply does not fit in available VRAM.
+    """
+    if suite_results or not requested_scenarios:
+        return None
+    return runner.capacity_exhausted_reason
 
 
 def load_json_or_exit(path: str, description: str) -> dict[str, Any]:
@@ -550,6 +566,9 @@ def evaluate_model(
             _, method_name, message = SUITES[suite]
             console.print(f"  [bold]• {message}[/]")
             suite_results = getattr(runner, method_name)(model, scenarios[suite])
+            skip_reason = _suite_skip_notice(runner, suite_results, scenarios[suite])
+            if skip_reason:
+                console.print(f"  [yellow]⚠ Skipped — model does not fit in available VRAM: {skip_reason}[/]")
             for r in suite_results:
                 display_scenario_result(r)
             results.extend(suite_results)
@@ -586,8 +605,14 @@ def save_outputs(
     scorecards: list[dict[str, Any]],
     results: list[dict[str, Any]],
     total_duration: float,
+    csv_path: str | None = None,
+    chart_path: str | None = None,
 ) -> tuple[str, str]:
-    """Write raw JSON, latest-run JSON and markdown summary; return (markdown_path, raw_json_path)."""
+    """Write raw JSON, latest-run JSON and markdown summary; return (markdown_path, raw_json_path).
+
+    When ``csv_path``/``chart_path`` are given (from ``--csv``/``--chart``), also write those
+    artifacts and link/embed them in the Markdown report (plan.md Phase 1, items 1.1-1.3).
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(f"{output_dir}/runs", exist_ok=True)
     raw_json_path = f"{output_dir}/runs/benchmark_{timestamp}.json"
@@ -608,7 +633,23 @@ def save_outputs(
         json.dump({"timestamp": timestamp, "scorecards": scorecards}, f, indent=2)
 
     md_report_path = f"{output_dir}/LATEST_SUMMARY.md"
-    generate_markdown_report(scorecards, results, specs, output_path=md_report_path)
+    md_dir = os.path.dirname(md_report_path) or "."
+
+    if csv_path:
+        write_scorecards_csv(scorecards, csv_path)
+        console.print(f"  [dim]CSV written to {csv_path}[/]")
+    if chart_path:
+        write_scorecards_chart(scorecards, chart_path)
+        console.print(f"  [dim]Chart written to {chart_path}[/]")
+
+    generate_markdown_report(
+        scorecards,
+        results,
+        specs,
+        output_path=md_report_path,
+        chart_path=os.path.relpath(chart_path, md_dir) if chart_path else None,
+        csv_path=os.path.relpath(csv_path, md_dir) if csv_path else None,
+    )
     return md_report_path, raw_json_path
 
 
@@ -692,7 +733,15 @@ def run_benchmarks(
     if has_ollama and has_other:
         show_1to1_comparison(scorecards, all_results, specs, args.output_dir)
 
-    md_report_path, raw_json_path = save_outputs(args.output_dir, specs, scorecards, all_results, total_duration)
+    md_report_path, raw_json_path = save_outputs(
+        args.output_dir,
+        specs,
+        scorecards,
+        all_results,
+        total_duration,
+        csv_path=args.csv,
+        chart_path=args.chart,
+    )
 
     tokens_saved = sum(sc.get("total_tokens_saved", 0) for sc in scorecards)
     cost_saved = sum(sc.get("est_cost_saved_usd", 0.0) for sc in scorecards)
@@ -796,6 +845,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--pair",
         default=None,
         help="1:1 model comparison pair ID from config.yaml (e.g. 'phi_mini', 'qwen_coder_7b')",
+    )
+    parser.add_argument(
+        "--csv",
+        default=None,
+        help="Write a CSV of the run's scorecards to this path (linked from the Markdown report)",
+    )
+    parser.add_argument(
+        "--chart",
+        default=None,
+        help="Write a PNG chart (one bar per scorecard) to this path; requires the [charts] extra "
+        "(embedded in the Markdown report)",
     )
     return parser
 

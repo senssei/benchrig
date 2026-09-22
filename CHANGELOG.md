@@ -42,11 +42,29 @@ versions may include breaking changes).
   automatically when the server is not reachable. Verified: items 4.1 (usage + telemetry in last
   chunk, `usage_estimated=False`), 4.2 (`device` from telemetry, not `exported_for`), and 4.5
   (concurrent load retries against the real load-lock).
+- `PrismClient.unload_model` now calls `POST /v1/unload` on the Prism server to actually free the
+  resident ONNX model's VRAM/RAM between models, instead of the inherited Foundry-CLI no-op it used
+  before (Phase 5, item 5.1; spec.md I7). Needs a prism-local build newer than `v0.2.0`
+  (`~/03-foundy-local` commit `6d6467a`); best-effort against an older server or a transport error
+  (logged, never raised — never fails a run).
 
 ### Fixed
 - `dev` extra now pulls in `charts` (`dev = [..., "benchrig[charts]"]`) so `pip install -e ".[dev]"` always
   installs `matplotlib`; `tests/test_report_charts.py` needs it and was failing in CI (and any fresh dev
   setup) because the `dev` and `charts` extras were independent.
+- `--csv <path>` and `--chart <path>` are now real CLI flags (`benchrig/cli.py`): `save_outputs` writes
+  the scorecards CSV / PNG chart when requested and links/embeds them in `LATEST_SUMMARY.md` (relative
+  to the report's directory). Phase 1 (items 1.1/1.2) had shipped the underlying
+  `benchrig.reporting.write_scorecards_csv`/`write_scorecards_chart` functions and their tests, but
+  never wired the flags or the `benchrig/reporting/__init__.py` exports into the CLI, so `--csv`/`--chart`
+  raised "unrecognized arguments".
+- A model that fails with a persistent `insufficient_resources` error (does not fit in available VRAM)
+  now stops the rest of its scenarios immediately instead of retrying every remaining scenario in every
+  remaining suite (`BenchmarkRunner._capacity_exhausted_reason`, Phase 4 item 4.6). A transient
+  `server_busy` (queue full) failure is unaffected and still retries per scenario as before. The CLI now
+  also prints *why* a suite produced no results (`⚠ Skipped — model does not fit in available VRAM: ...`,
+  `benchrig/cli.py::_suite_skip_notice`) instead of silently printing the suite header followed by
+  nothing.
 
 ## [0.1.0] - 2026-09-20
 

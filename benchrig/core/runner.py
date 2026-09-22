@@ -13,6 +13,11 @@ from benchrig.core.sandbox import extract_python_code, has_complete_code_block, 
 INTER_TEST_PAUSE_SEC = 0.5
 SANDBOX_TIMEOUT_SEC = 6.0
 
+# `generate()` failure signatures that mean "this model will not fit right now" rather than a transient
+# hiccup: retrying every remaining scenario (each with its own 503 retry budget) only spams the same
+# error and burns minutes. `server_busy` (queue full) is NOT included here — it can clear on its own.
+_CAPACITY_ERROR_MARKERS = ("insufficient_resources",)
+
 # Generation speed considered "strong" (100%) for 7B-8B local models.
 REFERENCE_TOK_PER_SEC = 60.0
 # Composite-score penalty applied when a run tripped the VRAM warning threshold.
@@ -111,10 +116,30 @@ class BenchmarkRunner:
             None  # duration of the first (warm-up) request, which includes loading the model
         )
         self.gpu_fit_pct: float | None = None  # share of the loaded model that is in GPU memory (Ollama only)
+        # Set once a scenario fails with a persistent capacity error (see `_CAPACITY_ERROR_MARKERS`); the
+        # rest of this model's scenarios, in this suite and every later suite, are then skipped instead of
+        # retried one-by-one. One `BenchmarkRunner` is created per model (benchrig/cli.py evaluate_model),
+        # so this never leaks across models.
+        self._capacity_exhausted_reason: str | None = None
 
     def _notify(self, status: str, detail: str = ""):
         if self.progress_callback:
             self.progress_callback(status, detail)
+
+    @property
+    def capacity_exhausted_reason(self) -> str | None:
+        """Set once a scenario failed with a persistent capacity error (`_capacity_error`); `None` until
+        then. Callers (e.g. `benchrig/cli.py`) use this to tell the operator *why* a suite produced no
+        results, instead of a silent "Running ..." header followed by nothing (plan.md item 4.6)."""
+        return self._capacity_exhausted_reason
+
+    @staticmethod
+    def _capacity_error(resp: dict[str, Any]) -> str | None:
+        """The error string when `resp` failed with a persistent capacity error, else ``None``."""
+        if resp.get("success"):
+            return None
+        error = str(resp.get("error") or "")
+        return error if any(marker in error for marker in _CAPACITY_ERROR_MARKERS) else None
 
     def _create_sampler(self) -> HardwareSampler:
         """Create HardwareSampler configured with client and dynamic thresholds."""
@@ -304,6 +329,9 @@ class BenchmarkRunner:
         ``success`` (already combined with ``response["success"]``).
         """
         results = []
+        if self._capacity_exhausted_reason:
+            self._notify(label, f"[{model}] skipping {suite} — model does not fit: {self._capacity_exhausted_reason}")
+            return results
         for sc in scenarios:
             self._notify(label, f"[{model}] {sc['name']}")
             options = self._effective_options(suite, model, sc.get("options", {}))
@@ -313,6 +341,12 @@ class BenchmarkRunner:
             record["eval_count"] = resp.get("eval_count", 0)
             record.update(score(sc, resp))
             results.append(record)
+
+            reason = self._capacity_error(resp)
+            if reason:
+                self._capacity_exhausted_reason = reason
+                self._notify(label, f"[{model}] stopping — model does not fit in available VRAM: {reason}")
+                break
             time.sleep(INTER_TEST_PAUSE_SEC)
         return results
 
@@ -439,6 +473,11 @@ class BenchmarkRunner:
         timed request measures prefill instead of model load time.
         """
         results = []
+        if self._capacity_exhausted_reason:
+            self._notify(
+                "Context Scaling", f"[{model}] skipping context — model does not fit: {self._capacity_exhausted_reason}"
+            )
+            return results
         for sc in scenarios:
             ctx_size = sc["context_size"]
             prompt = build_context_prompt(
@@ -473,6 +512,12 @@ class BenchmarkRunner:
                 )
                 record["success"] = record["retrieved"]
             results.append(record)
+
+            reason = self._capacity_error(resp)
+            if reason:
+                self._capacity_exhausted_reason = reason
+                self._notify("Context Scaling", f"[{model}] stopping — model does not fit in available VRAM: {reason}")
+                break
             time.sleep(INTER_TEST_PAUSE_SEC)
         self._restore_default_context(model)
         return results

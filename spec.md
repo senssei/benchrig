@@ -83,3 +83,33 @@ Benchrig already implements items 4.1 and 4.2; the items below pin the contract 
 **4.5 503 retry (new code).** Prism returns 503 with `Retry-After: 30` when the queue is full (`server_busy`) or load-lock contention is detected (`insufficient_resources`). Benchrig's `OpenAICompatibleChatClient` (and the Prism `chat_complete_openai` path through it) gets a `_post_with_503_retry(url, payload, headers)` helper: on 503 it waits the server-provided `Retry-After` (capped at 60 s) and retries up to 3 times; on the 4th 503 it raises `PrismBusyError(reason=...)` with the reason from the JSON body (`error.code` / `error.type`). Other 5xx (500, 502, 504) and all 4xx are NOT retried. The helper logs one line per retry attempt at the `console.print("[dim]…")` level so the user sees what's happening during long waits. (I6.)
 
 These behaviors move up into §2 (I5, I6) once Phase 4 ships.
+
+### Phase 5: Real model unload for Prism (`POST /v1/unload`)
+
+Grounded in `~/03-foundy-local` `main` commit `6d6467a` (post-`v0.2.0`; not yet tagged). Contract (`docs/api.md`, `spec.md` P8
+in that repo): `POST /v1/unload` drops the ONNX model held by `ActiveEngineManager`, is idempotent, takes an optional
+JSON-object body (any object accepted and ignored; a non-empty non-object body is `400`), requires the API key when
+`--api-key` is set, and replies `200 {"unloaded": bool, "model": string|null}`. `manager.unload()` holds the engine lock,
+so the call is synchronous and can take seconds if a generation is in flight. Ollama models served through Prism are not
+affected (only ONNX models go through `ActiveEngineManager`).
+
+**Gap today:** `benchrig/cli.py::evaluate_model` already calls `client.unload_model(model)` after each model's suites
+("Unload after the test so the next model starts from clean memory", gated on `unload_after_test`), and
+`BaseRuntimeClient.unload_model` is part of the client contract. `PrismClient` does not override it, so it inherits
+`FoundryClient.unload_model`, which only acts `if self._managed_by_foundry_cli()` — always `False` for Prism
+(`auto_detect_port=False`). The call is a silent no-op: the console prints "Unloading memory for model X (Prism)..." but
+nothing happens, so the VRAM baseline noise described in `intent.md` §1 and the capacity-exhausted short-circuit (plan.md
+Phase 4 item 4.6) both see whatever the *previous* model left resident.
+
+**New behavior:** `PrismClient.unload_model(model_name)` calls `POST /v1/unload` on the Prism server (with the bearer
+token from `_request_kwargs()` when `api_key` is set) and returns `True` regardless of outcome — unload is best-effort
+and must never fail a benchmark run (matching `FoundryClient.unload_model`'s existing contract and
+`BaseRuntimeClient.unload_model`'s docstring). Any transport error, non-2xx status (including `404` from a prism-local
+build older than `6d6467a`, which has no `/v1/unload` route), or unexpected body is logged at `_log.info` and swallowed;
+`model_name` is used only for the log line, since the server's own response already names the released model id.
+
+These behaviors move up into §2 (I7) once Phase 5 ships.
+
+| # | Invariant (planned, becomes I7) |
+|---|---|
+| I7 | `PrismClient.unload_model(model)` always sends `POST /v1/unload` to the Prism server and always returns `True`; a failing or missing endpoint is logged, never raised, so `evaluate_model`'s per-model teardown never fails a run because of it. |
