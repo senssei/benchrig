@@ -1,6 +1,13 @@
 """Live integration test for PrismClient against a running prism-local server (Phase 4, items 4.1, 4.2, 4.5).
 
-Skipped automatically when the prism-local server is not reachable on `127.0.0.1:5272`. To run locally:
+Skipped automatically when EITHER:
+
+  - the prism-local server is not reachable on `127.0.0.1:5272`, OR
+  - free VRAM is below `MIN_FREE_VRAM_MB` (the runtime test loads a 0.6B ONNX model; the
+    load-lock test loads a 7B; both 503 on `insufficient_resources` if the host GPU is
+    busy with another model — an environmental condition, not a code regression).
+
+To run locally:
 
     /home/senssei/.local/bin/prism serve --port 5272 &
     python -m pytest tests/test_prism_runtime_live.py -v
@@ -9,6 +16,7 @@ The test exercises the benchrig `PrismClient.generate` path end-to-end against a
 server so contract drift in prism-local surfaces as a CI failure here, not in production.
 """
 
+import subprocess
 import unittest
 
 import requests
@@ -21,6 +29,11 @@ LIVE_MODEL = "qwen3-0.6b-generic-cpu-4:v4"
 # A model the server reports with `device=CUDA (GPU)` and `exported_for=CPU` so item 4.2 has a real
 # mismatch to verify against.
 DEVICE_MISMATCH_MODEL = "qwen2.5-coder-7b-instruct-generic-cpu-4:v4"
+# Conservative floor for the live tests — the 7B model needs ~9 GB so a host with < 8 GB free
+# cannot run the load-lock race anyway, and any GPU activity that drops free VRAM below this
+# threshold is treated as "host too busy to be a meaningful live test". Skip cleanly instead of
+# failing confusingly.
+MIN_FREE_VRAM_MB = 8000
 
 
 def _prism_reachable() -> bool:
@@ -31,9 +44,31 @@ def _prism_reachable() -> bool:
         return False
 
 
-@unittest.skipUnless(
-    _prism_reachable(), "prism-local server not reachable on 127.0.0.1:5272; start `prism serve` to run this test"
+def _free_vram_mb() -> int:
+    """`nvidia-smi --query-gpu=memory.free` as an integer MiB; 0 on any failure (no GPU, no nvidia-smi)."""
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            timeout=2,
+            text=True,
+        ).strip()
+        return int(out.splitlines()[0])
+    except Exception:
+        return 0
+
+
+def _live_environment_ready() -> bool:
+    """All conditions for the live tests: prism reachable AND enough free VRAM."""
+    return _prism_reachable() and _free_vram_mb() >= MIN_FREE_VRAM_MB
+
+
+_LIVE_SKIP_REASON = (
+    f"prism-local live tests require `prism serve` reachable on 127.0.0.1:5272 AND >= {MIN_FREE_VRAM_MB} MB free VRAM. "
+    "Free the host's GPU (stop the offending model server or release its VRAM) and re-run."
 )
+
+
+@unittest.skipUnless(_live_environment_ready(), _LIVE_SKIP_REASON)
 class PrismRuntimeLiveTests(unittest.TestCase):
     """End-to-end tests against a real prism-local 0.2.0+ server."""
 
@@ -83,6 +118,7 @@ class PrismRuntimeLiveTests(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_live_environment_ready(), _LIVE_SKIP_REASON)
 class PrismLoadLockLiveTests(unittest.TestCase):
     """Phase 4 item 4.5 — live verification of the retry helper.
 
@@ -90,11 +126,6 @@ class PrismLoadLockLiveTests(unittest.TestCase):
     at the same time, the second gets a 503 + Retry-After. We trigger this by issuing two
     concurrent requests for the same not-yet-loaded model.
     """
-
-    @classmethod
-    def setUpClass(cls):
-        if not _prism_reachable():
-            raise unittest.SkipTest("prism-local server not reachable on 127.0.0.1:5272")
 
     def test_concurrent_loads_trigger_503_with_retry_after(self):
         """Two simultaneous first-requests for the same model: one wins the load lock, the other

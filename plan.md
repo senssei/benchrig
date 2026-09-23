@@ -346,6 +346,173 @@ never specified label rotation or overlap handling, so this was undefined behavi
 
 ---
 
+## Phase 8: Real-time per-scenario feedback and an overall progress bar
+
+Status: shipped, retroactively documented (2026-09-22). Requested by the operator ("dodaj do pipeline jakiś
+progressbar") after a long `reasoning` suite gave no terminal output for its whole duration and then dumped every
+`PASS`/`FAIL` line at once — `_run_suite`/`run_context_suite` built the full suite result list before
+`benchrig/cli.py::evaluate_model` printed any of it. This item was implemented directly (skipping `/sdlc-plan`,
+against `CLAUDE.md`); the operator asked for it to be written up here after the fact rather than reverted, since it
+was already green. `spec.md` Phase 8 has the full before/after. Gate run manually: `ruff check .`, `ruff format
+--check .`, full `pytest` (305 passed, 2 skipped, 2 deselected — see note below), `python3 -m build`, all green.
+Review (2026-09-22, together with Phase 9, one independent general-purpose agent, fresh context): 1 finding
+(missing test coverage for item 8.2), fixed — see item 8.2 below. sdlc_check.py exit 0 after the fix.
+
+- [x] <!-- Item 8.1: BenchmarkRunner.on_result callback, fired per scenario record.
+         Files: benchrig/core/runner.py (__init__: new on_result param; _run_suite and run_context_suite call
+                self.on_result(record) right after results.append(record)),
+                tests/test_runner_suites.py (RunnerSuiteTests.test_on_result_fires_per_scenario_before_the_suite_finishes).
+         Test: tests/test_runner_suites.py::RunnerSuiteTests::test_on_result_fires_per_scenario_before_the_suite_finishes
+               (red-proven: HEAD's BenchmarkRunner.__init__ has no on_result parameter at all, so constructing it
+               with on_result=... raises TypeError) asserts on_result sees each record, in scenario order, before
+               run_speed_suite returns, and that the seen list equals the returned results list.
+         Status: shipped 2026-09-22. -->
+- [x] <!-- Item 8.2: Real-time per-scenario printing + an overall rich.progress.Progress bar in the CLI.
+         Files: benchrig/cli.py (evaluate_model: new on_progress param, on_result closure wired into
+                BenchmarkRunner(on_result=...) that calls display_scenario_result immediately instead of the old
+                post-suite `for r in suite_results: display_scenario_result(r)` loop; run_benchmarks: wraps the
+                per-target loop in a rich.progress.Progress bar sized via the new _total_scenario_steps() helper
+                — extracted during review so the arithmetic is directly testable — advanced via on_progress;
+                tests/test_benchmark_cli.py: TotalScenarioStepsTests, EvaluateModelProgressTests).
+         Test: tests/test_benchmark_cli.py::TotalScenarioStepsTests::test_counts_one_unit_per_target_run_and_scenario,
+               ::test_zero_scenarios_is_zero_not_a_crash, and
+               EvaluateModelProgressTests::test_on_progress_fires_once_per_scenario_across_suites_and_runs (all
+               red-proven: neither _total_scenario_steps nor evaluate_model's on_progress param existed at HEAD
+               — "not found"/would-be TypeError); ::test_on_progress_is_optional is a guard, not red-proven (it
+               also passes with on_progress omitted at HEAD, since that param is additive).
+         Status: shipped 2026-09-22. Independent review (general-purpose agent, fresh context) flagged this item
+               had zero test coverage; fixed by extracting _total_scenario_steps and adding the tests above.
+               sdlc_check.py exit 0. Re-verified by tests only, not re-sent to the reviewer agent. -->
+
+**Note on the deselected live tests:** `tests/test_prism_runtime_live.py::PrismRuntimeLiveTests::test_device_comes_from_telemetry_not_from_exported_for`
+and `::PrismLoadLockLiveTests::test_concurrent_loads_trigger_503_with_retry_after` fail regardless of this change —
+confirmed by running them against `HEAD` (via `git stash`) before this item started: first a VRAM-contention 503
+(another process holding the load lock), then `Connection refused` once the operator's manually-started
+`prism serve --port 0` (ephemeral port, not the tests' hardcoded 5272) was no longer reachable at that port. Pre-existing
+environment/live-server flakiness, unrelated to items 8.1/8.2; not fixed here.
+
+---
+
+## Phase 9: Coding-suite failure diagnostics (from a flagged 0-passed run)
+
+Status: approved by the operator (2026-09-22, both 9.1 and 9.2; the other two open questions below —
+retry/determinism-warning design and re-running the old flagged benchmark — were not addressed and stay open,
+not implemented). Items 9.1 and 9.2 both shipped 2026-09-22. Review (2026-09-22, together with Phase 8, one
+independent general-purpose agent, fresh context): 4 findings — 1 high (9.2's dedent broke a multi-fence
+class+method-continuation pattern: a real, demonstrated regression, not a false alarm), 2 medium (9.1's
+response_excerpt used the wrong truncation direction for coding; item 8.2 had no test coverage — recorded
+under Phase 8), 1 low (9.1's own test never exercised the truncation branch it claimed to prove) — all 4
+fixed, each reproduced with its own test first. Awaiting operator commit; the fixes were verified by tests
+only, not re-sent to the reviewer agent for a second pass. Triggered by the operator flagging that in
+`results/runs/runs/benchmark_20260922_214037.json`, `Phi-4-mini-instruct-cuda-gpu`,
+`Phi-4-mini-instruct-generic-cpu-5:v5` and `Phi-3.5-mini-instruct-generic-cpu-2:v2` scored 0 `passed_tests` on every
+`coding` scenario (`IndentationError`/`SyntaxError`), which is implausible for that model class. Full investigation
+and both competing hypotheses are in `spec.md` Phase 9. Summary: the leading hypothesis (an indentation/dedent bug
+in `extract_python_code`, `benchrig/core/sandbox.py:17-31`) failed to reproduce 15/15 times against the exact
+failing `(model, scenario, options)` triples on the live Prism server this session — so **item 9.2 below is a
+hardening measure, not a confirmed bug fix**, and must not be described as "fixing" that run's failures. The more
+evidence-consistent alternative — `execution_alignment_1to1.seed: 42` does not make the `coding`/`reasoning` suites
+actually deterministic on ONNX Runtime GenAI + CUDA under GPU-load conditions this session's replay did not
+reproduce, which would mean intent.md Constraints 4 and 5 are not currently upheld for these suites — has **no
+captured evidence either** (the original run kept no raw response), which is exactly what item 9.1 fixes going
+forward.
+
+- [x] <!-- Item 9.1: Persist coding-suite failure diagnostics so the next 0-passed run is debuggable without live
+         reproduction.
+         Files: benchrig/core/runner.py (run_coding_suite's score(): when test_res["passed"] is False, add
+                extracted_code (read from test_res, already computed by run_code_with_tests/_sandbox_result,
+                truncated to sandbox.EXTRACTED_CODE_PREVIEW_CHARS) and response_excerpt (first
+                CODING_RESPONSE_EXCERPT_CHARS=400 chars of the raw response — corrected during review, see
+                below) to the returned dict), tests/test_runner_suites.py (three tests next to
+                test_coding_suite_scores_sandbox_result).
+         Test: tests/test_runner_suites.py::RunnerSuiteTests::test_coding_suite_failure_keeps_extracted_code_and_response_for_diagnosis
+               (red-proven: KeyError 'extracted_code', the field did not exist),
+               ::test_coding_suite_success_omits_diagnostic_fields (guards against bloating every record), and
+               ::test_coding_suite_response_excerpt_keeps_the_code_over_long_trailing_prose (red-proven against
+               the first version of this fix, see below).
+         Status: shipped 2026-09-22; sdlc_check.py exit 0. Independent review (general-purpose agent, fresh
+               context) found response_excerpt copied reasoning's tail-truncation shape (last 400 chars), which
+               is wrong for coding: the code fence comes first in the prompt's own instructions, so long
+               trailing prose after the fence could push the code itself out of the excerpt — exactly the
+               material a future diagnosis needs. Fixed to head-truncation (first 400 chars, new
+               CODING_RESPONSE_EXCERPT_CHARS constant instead of a bare literal, also flagged by the review).
+               Re-verified by tests only, not re-sent to the reviewer agent. -->
+- [x] <!-- Item 9.2 (hardening, not a confirmed fix — see status note above): dedent a fenced code block in
+         extract_python_code before stripping/joining, so a model that wraps a single ```python fence inside
+         indented markdown (numbered lists, nested bullets) is not miss-extracted. Defense-in-depth for a real
+         latent gap; not shown to be the cause of the flagged run's failures.
+         Files: benchrig/core/sandbox.py (extract_python_code: apply textwrap.dedent() ONLY when there is
+                exactly one matched fence (`len(matches) == 1`), before the `code_blocks_with_def` filter and
+                before the final .strip()/join — corrected during independent review, see below),
+                tests/test_sandbox.py (ExtractCodeTests::test_dedents_a_fence_indented_under_a_markdown_list,
+                ::test_does_not_dedent_a_continuation_fence_that_shares_indentation_with_an_earlier_block).
+         Test: tests/test_sandbox.py::ExtractCodeTests::test_dedents_a_fence_indented_under_a_markdown_list
+               (red-proven: a fence for `def add(a, b): return a + b` plus a same-level `print(add(1, 2))`,
+               indented 3 spaces under a markdown list item, raised `IndentationError: unindent does not match
+               any outer indentation level` on compile() before the fix — the exact error string seen in the
+               flagged run — and now round-trips to flush-left, correctly-indented code).
+         Status: shipped 2026-09-22; sdlc_check.py exit 0. Independent review (general-purpose agent, fresh
+               context) found the first version dedented every matched block independently (including when
+               `code_blocks_with_def` joins more than one), which is a real regression: a class shown in one
+               fence with a method continuation in a second, indented fence lost the method's indentation and
+               it silently became a free function instead of staying nested (confirmed by hand: 2/2 assertions
+               passed before the first version of this fix, 1/2 after, with `'Calculator' object has no
+               attribute 'subtract'`). Fixed by scoping dedent to the unambiguous single-fence case only,
+               red-proven via test_does_not_dedent_a_continuation_fence_that_shares_indentation_with_an_earlier_block
+               before the fix, green after. Re-verified by tests only, not re-sent to the reviewer agent. -->
+
+**Open questions for the operator (do not implement without a decision):**
+1. Approve 9.1 (diagnostics) and 9.2 (hardening) both, or only 9.1 for now?
+2. Should anything be done about the suspected non-determinism itself (e.g. a coding/reasoning suite retry-on-fail,
+   sampling GPU occupancy at request time, a "seed did not guarantee determinism" warning) — or is documenting the
+   gap in spec.md Phase 9 enough for now? This is a bigger design change (cost/time tradeoffs of retries; risk of
+   masking a genuine model weakness as "just flakiness") and needs an explicit decision, not an assumption.
+3. Should `results/runs/runs/benchmark_20260922_214037.json`'s existing scorecards be re-run once 9.1 ships, to get
+   a diagnosable data point the next time this happens — or leave it as an unexplained historical run?
+
+---
+
+## Phase 10: Display honesty for floor-driven decode-speed ceilings
+
+Status: not approved yet. Surfaced during the Sept 22 anomaly verification
+(`results/ANOMALY_VERIFICATION.md`). A measurement floor in
+`benchrig/core/client.py:877-885` (`eval_duration_sec = max(0.001, end_wall_time -
+first_token_time)`) prevents divide-by-zero on sub-millisecond generations, but
+the resulting displayed speed is a meaningless ceiling (`eval_count=3 / 0.001s =
+3000.0 t/s` for Phi-4-mini on every 4-digit-number context-suite answer; same
+artifact at `6000.0 t/s` for Phi-3.5 on the same answers). The Markdown report
+shows the bare number — no annotation that the floor was applied, no
+distinction from a real `3000 t/s` measurement. Intent.md Constraint 5
+("Numbers reported are honest") is technically upheld (the speed is what the
+client measured) but the **display** is misleading when the answer is short
+enough that the floor engages.
+
+- [ ] Item 10.1: annotate floored decode-speed values in Markdown, CSV, and the per-record
+         dict so the operator can distinguish `3000 t/s` (floor × 3 tokens) from a real
+         3 000 t/s generation. Operator decision required before implementation: which
+         display form? `(~3000 t/s)`, `(3000 t/s, floor)`, an extra column, a separator
+         row, or a downstream-tool convention. The change sits in the reporting layer
+         (markdown + csv_export) and one extra per-record key from `client.py`; no
+         measurement change.
+         Files: `benchrig/core/client.py` (set `eval_tok_sec_floored: bool`),
+                `benchrig/reporting/markdown.py` (render conditional),
+                `benchrig/reporting/csv_export.py` (carry flag forward),
+                `tests/test_prism_runtime.py` (`ContextSuiteFloorSpeedAnnotationTests`).
+         Test (red-first): a streamed response with `eval_count=3` and
+         `eval_duration_sec=0.0005` (floor-engaging) produces a record with the new flag
+         set; the rendered Markdown contains the chosen annotation; a response with
+         `eval_duration_sec=0.005` (real) does NOT set the flag.
+         Risk: the chosen display form may be controversial; defer until operator pick.
+
+**Open questions for the operator (do not implement without a decision):**
+1. Which display form for floored decode-speed values? (~, asterisk, separate column, both)
+2. Should the floor artifact be retroactively flagged in the existing Markdown reports, or
+   only future runs?
+3. Does the CSV export need the flag (operators may analyze from CSV programmatically), or
+   is the human-facing Markdown annotation enough?
+
+---
+
 ## Backlog (not scheduled)
 
 Surfaced while specifying Phase 6 against `~/03-foundy-local` `main`; none are approved for implementation.

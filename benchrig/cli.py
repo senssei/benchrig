@@ -13,11 +13,13 @@ import re
 import site
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from importlib import resources
 from typing import Any
 
 import yaml
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from benchrig import __version__
 from benchrig.core.client import BaseRuntimeClient, create_runtime_client
@@ -139,6 +141,11 @@ def _suite_skip_notice(
     if suite_results or not requested_scenarios:
         return None
     return runner.capacity_exhausted_reason
+
+
+def _total_scenario_steps(scenarios: dict[str, list[dict[str, Any]]], runs: int, num_targets: int) -> int:
+    """Units for the overall progress bar: one per (target x run x scenario) (plan.md Phase 8, item 8.2)."""
+    return sum(len(v) for v in scenarios.values()) * runs * num_targets
 
 
 def load_json_or_exit(path: str, description: str) -> dict[str, Any]:
@@ -537,12 +544,23 @@ def evaluate_model(
     suites: list[str],
     scenarios: dict[str, list[dict[str, Any]]],
     runs: int,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
-    """Load, warm up, benchmark, and unload one model; return its raw result records."""
+    """Load, warm up, benchmark, and unload one model; return its raw result records.
+
+    ``on_progress``, when given, is called with each scenario's result record as soon as it completes
+    (before the whole suite finishes), so a caller can advance an overall progress bar in real time.
+    """
     console.print(
         f"\n[bold yellow]━━━ [{client.display_name}: {model}] Starting evaluation ({client.engine_name}) ━━━[/]"
     )
-    runner = BenchmarkRunner(client=client, config=config)
+
+    def on_result(record: dict[str, Any]) -> None:
+        display_scenario_result(record)
+        if on_progress:
+            on_progress(record)
+
+    runner = BenchmarkRunner(client=client, config=config, on_result=on_result)
     # Before the model is loaded, so reports can separate the model's memory from whatever else uses the GPU.
     baseline_mb = runner.measure_vram_baseline()
     if baseline_mb > 0:
@@ -569,8 +587,6 @@ def evaluate_model(
             skip_reason = _suite_skip_notice(runner, suite_results, scenarios[suite])
             if skip_reason:
                 console.print(f"  [yellow]⚠ Skipped — model does not fit in available VRAM: {skip_reason}[/]")
-            for r in suite_results:
-                display_scenario_result(r)
             results.extend(suite_results)
 
     # Unload after the test so the next model starts from clean memory
@@ -703,19 +719,46 @@ def run_benchmarks(
     # Warn once per run when a target uses the slow generic-cpu execution provider on a CUDA host (spec.md I4).
     _warn_slow_provider(targets, specs)
 
+    # One unit per (model x run x scenario); models skipped for capacity leave the bar short of 100%, which is fine —
+    # it still shows real progress instead of nothing until a whole suite finishes (plan.md progress-bar item).
+    total_steps = _total_scenario_steps(scenarios, args.runs, len(targets))
+
     raw_results: list[dict[str, Any]] = []
     total_start = time.time()
-    for runtime_name, model in targets:
-        client = clients.get(runtime_name)
-        if not client:
-            console.print(f"[bold red]Unknown runtime: {runtime_name}[/]")
-            continue
-        if not client.is_reachable():
-            console.print(
-                f"[bold yellow]⚠ Skipping {runtime_name}:{model} — {client.display_name} server is not responding.[/]"
+    with Progress(
+        TextColumn("[bold blue]{task.fields[label]}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("benchmark", total=total_steps or None, label="Benchmarking")
+        for runtime_name, model in targets:
+            client = clients.get(runtime_name)
+            if not client:
+                console.print(f"[bold red]Unknown runtime: {runtime_name}[/]")
+                continue
+            if not client.is_reachable():
+                console.print(
+                    f"[bold yellow]⚠ Skipping {runtime_name}:{model} — {client.display_name} server is not responding.[/]"
+                )
+                continue
+            progress.update(task, label=f"{runtime_name}:{model}")
+            raw_results.extend(
+                evaluate_model(
+                    runtime_name,
+                    client,
+                    model,
+                    config,
+                    suites_to_run,
+                    scenarios,
+                    args.runs,
+                    on_progress=lambda _record: progress.advance(task),
+                )
             )
-            continue
-        raw_results.extend(evaluate_model(runtime_name, client, model, config, suites_to_run, scenarios, args.runs))
     total_duration = time.time() - total_start
 
     all_results = baseline_results + raw_results

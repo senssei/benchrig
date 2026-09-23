@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 from typing import Any
 
@@ -20,6 +21,15 @@ def extract_python_code(text: str) -> str:
     # Try ```python ... ```
     pattern = r"```(?:python|py)?\n(.*?)```"
     matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+    if len(matches) == 1:
+        # A single fence nested under a markdown list/bullet keeps the list's margin on every line; dedent it
+        # (before stripping) so that margin does not survive as a spurious indent on some lines but not others
+        # (`.strip()` alone only trims the outer edges of the whole block, e.g. `IndentationError: unindent does
+        # not match any outer indentation level` on a later same-level statement). Only done for a single fence:
+        # with more than one, a later block may be a continuation fragment (e.g. a method added to a class shown
+        # in an earlier fence) whose indentation is relative to that block, not markdown noise, and dedenting it
+        # on its own would strip the very indentation that keeps it nested.
+        matches = [textwrap.dedent(matches[0])]
     if matches:
         # If multiple code blocks, join them or pick the longest one containing function/def
         code_blocks_with_def = [b for b in matches if "def " in b or "class " in b]

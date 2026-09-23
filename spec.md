@@ -42,6 +42,7 @@ Tests and reviews cite these by number. Changing one needs operator approval.
 | VRAM baseline contains foreign GPU processes (other model, MCP server, IDE daemon) | `vram_baseline_dirty_mb` records the foreign-process VRAM (rounded to MB); `vram_baseline_mb` stays as the whole-GPU used memory (own + foreign); existing `vram_baseline_dirty` boolean keeps its current semantics | `benchrig/core/runner.py` `measure_vram_baseline()` |
 | Prism server returns 503 with `Retry-After` (queue full or load lock contention) | Benchrig retries up to 3× with the server-provided delay (capped at 60 s); after that `PrismBusyError` is raised naming the reason from the JSON body (I6) | `benchrig/core/client.py` retry helper |
 | A scenario's `options` has a sampling value the server rejects, or one that isn't even parseable client-side (e.g. `top_k: "many"`, `repetition_penalty: "high"`) | `FoundryClient.generate()`/`PrismClient.generate()` catches the `TypeError`/`ValueError` from building the payload and returns a normal failed-scenario result (I8); the rest of the run continues | `benchrig/core/client.py` `FoundryClient.generate()` |
+| A `coding` scenario fails (`passed=False`) | The result record additionally carries `extracted_code` (first `sandbox.EXTRACTED_CODE_PREVIEW_CHARS` chars) and `response_excerpt` (first `CODING_RESPONSE_EXCERPT_CHARS` chars of the raw response — head-truncated, since a coding prompt asks for code first), so the failure is diagnosable from the saved JSON alone (Phase 9, item 9.1, shipped). A passing scenario carries neither field. | `benchrig/core/runner.py` `run_coding_suite`'s `score()` |
 
 ## 4. Planned behavior (not implemented)
 
@@ -168,3 +169,80 @@ already reports something closer to "answer TTFT" than "first token of any kind"
    gets the same fix, since Foundry Local's own OpenAI-compatible endpoint accepts the same OpenAI parameter names.
 
 Shipped (plan.md Phase 6, reviewed); the invariants are I8 and I9 in §2.
+
+### Phase 8: Real-time per-scenario feedback and an overall progress bar — shipped, retroactively documented
+
+Found by the operator: a suite with many scenarios (e.g. 12-scenario `reasoning`) gave no terminal output at all
+between "Running reasoning & logic tests..." and a block of per-scenario `PASS`/`FAIL` lines dumped all at once —
+`BenchmarkRunner._run_suite` (and `run_context_suite`) built the whole suite's result list in memory and
+`benchrig/cli.py::evaluate_model` only called `display_scenario_result` after `getattr(runner, method_name)(...)`
+returned, so a long-running suite looked stalled even though scenarios were completing one by one.
+
+**New behavior:** `BenchmarkRunner.__init__` takes an optional `on_result: Callable[[dict], None] | None` (alongside
+the pre-existing `progress_callback`); `_run_suite` and `run_context_suite` call it with each scenario's finished
+record immediately after appending it to the suite's result list, before moving to the next scenario. `on_result`
+defaults to `None` (no behavior change for existing callers, e.g. `tests/test_runner_suites.py`).
+`benchrig/cli.py::evaluate_model` wires `on_result` to a closure that calls `display_scenario_result` (moved out of
+the old post-suite loop, so each line prints as soon as that scenario finishes) and an optional `on_progress` hook.
+`run_benchmarks` wraps the per-target loop in a `rich.progress.Progress` bar (model:runtime label, bar,
+completed/total count, elapsed, ETA) sized to `len(targets) * args.runs * sum(len(scenarios) per suite)`, and passes
+`on_progress=lambda _record: progress.advance(task)` into `evaluate_model`. A model skipped for capacity, or a suite
+with fewer scenarios than requested, leaves the bar short of 100% for that run instead of raising — the bar is a UX
+aid, not a completion invariant.
+
+Shipped (plan.md Phase 8); no new numbered invariant (cosmetic CLI feedback, not a correctness contract).
+
+### Phase 9: Coding-suite failure diagnostics (investigation of `results/runs/runs/benchmark_20260922_214037.json`)
+
+**Investigation, not yet spec'd as a fix.** The operator flagged that run's `coding` suite: `Phi-4-mini-instruct-cuda-gpu`,
+`Phi-4-mini-instruct-generic-cpu-5:v5` and `Phi-3.5-mini-instruct-generic-cpu-2:v2` scored 0 `passed_tests` on every
+scenario (`IndentationError`/`SyntaxError` in `sandbox_error`); `mistral-7b-instruct-v0.2-cuda-int4-rtn-block-32`
+passed 2 of 4. All had `finish_reason: "stop"` (not truncated) and plausible `eval_count`s — the model finished
+normally and still produced code the sandbox could not run.
+
+**Leading hypothesis going in** (`extract_python_code`, `benchrig/core/sandbox.py:17-31`, only calls `.strip()` on
+the whole extracted/joined block, never dedents internal lines, and joins multiple `def`/`class` blocks with
+`"\n\n".join(...)` with no per-block cleanup) was **not confirmed**: replaying the exact failing
+`(model, scenario)` pairs — same prompt, same `temperature: 0.1`/`num_predict` from `benchrig/data/scenarios/coding.json`,
+same live Prism server, same `extract_python_code`/`run_code_with_tests` — passed 15/15 times across
+`code_flatten_dict`, `code_merge_intervals`, `code_lru_cache` and `code_balanced_parentheses` for
+`Phi-4-mini-instruct-cuda-gpu` (2026-09-22, this session). Every replayed response was flush-left, single-block,
+valid Python. This does not rule out the dedent gap as a real latent bug — it is still worth hardening — but it is
+not shown to be *this run's* cause.
+
+**Working alternative hypothesis:** `execution_alignment_1to1.seed: 42` (`benchrig/data/config.yaml`) is applied to
+every run via `BenchmarkRunner._sampling_defaults()`/`_with_sampling()` (not just `--pair` 1:1 comparisons), on the
+assumption that a fixed seed plus `temperature: 0.1` makes suites reproducible — this is intent.md Constraint 4
+("Suites are deterministic … No flaky-by-design benchmarks"). ONNX Runtime GenAI on CUDA does not guarantee
+bit-identical output for a fixed seed under different GPU occupancy (cuBLAS/cuDNN algorithm selection can vary with
+free memory and concurrent kernels); the flagged run had tested several models back-to-back in the same Prism
+process (which has no automatic unload between models pre-Phase-5, and multiple `generic-cpu` models forced onto
+CUDA — `AGENTS.md`'s slow-provider note) shortly before the Phi-4-mini coding suite ran, a GPU-load profile this
+session's clean replay did not reproduce. This would mean Constraint 4 is not currently upheld for the `coding`
+(and by extension `reasoning`) suites on this backend, and Constraint 5 ("numbers reported are honest … never
+hidden") is also not met, since nothing today flags or captures evidence of it happening.
+
+**Not confirmed either** — there is no captured evidence (raw response, GPU occupancy at request time) from the
+original run to prove the alternative hypothesis; only that the leading hypothesis failed 15/15 reproduction
+attempts and this alternative is consistent with what *is* known (intent.md's existing, unresolved ONNX-int4
+reasoning-quality gap open item is a different but related symptom of the same runtime).
+
+**Proposed next step (needs operator decision on scope):** before any behavior change, capture enough to diagnose
+the *next* occurrence without live reproduction: persist `extracted_code` (already computed, currently discarded)
+and a bounded raw-response excerpt into the `coding` suite's result record whenever `passed` is `False` — see
+plan.md Phase 9 item 9.1. Whether to also do something about the suspected non-determinism (retry-on-failure,
+GPU-occupancy sampling at request time, a determinism warning, or nothing beyond documenting it) is an open
+question for the operator; no invariant or new behavior is specified for it yet.
+
+**Shipped 2026-09-22 (both items approved by the operator):**
+
+- **Item 9.1** (§3 table has the current behavior): `extracted_code`/`response_excerpt` are now kept on a failing
+  `coding` record.
+- **Item 9.2** (hardening — still not a confirmed fix for the flagged run, see above): `extract_python_code`
+  (`benchrig/core/sandbox.py`) dedents (`textwrap.dedent`) a fenced block **only when it is the single fence in
+  the response**, before the `code_blocks_with_def` filter and the final `.strip()`. Independent review found
+  that the first version of this fix dedented *every* matched block independently, including when
+  `code_blocks_with_def` joins more than one — which broke a real, different pattern: a model showing a class in
+  one fence and a method continuation (indented relative to that class, not to markdown) in a second fence. Since
+  there is no reliable way to tell "spurious markdown-list margin" from "intentional continuation indent" once
+  there is more than one fence, dedenting is now scoped to the unambiguous case (exactly one fence) only.

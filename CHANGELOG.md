@@ -56,6 +56,17 @@ versions may include breaking changes).
 - `FoundryClient.generate()` now reads `reasoning_content` from the response (streaming delta or
   non-streaming message) and records its length as `thinking_chars`, matching `OllamaClient`'s existing
   field (Phase 6, item 6.2; spec.md I9). Needs a prism-local build with reasoning separation (past `v0.2.0`).
+- Each scenario now prints its `PASS`/`FAIL` line as soon as it finishes, instead of the whole suite
+  finishing silently and dumping every line at once (`BenchmarkRunner.on_result`, called immediately
+  from `_run_suite`/`run_context_suite`); `benchrig/cli.py::run_benchmarks` also shows an overall
+  `rich.progress.Progress` bar across every model/run/scenario in the run (Phase 8; spec.md Phase 8).
+- A failing `coding` scenario's result record now keeps `extracted_code` and a `response_excerpt`
+  (bounded to the first 400 characters, since a coding prompt asks for code first — unlike reasoning's
+  tail-truncated `answer_excerpt`, where the final answer comes last), so a run that scores 0
+  `passed_tests` can be diagnosed from the saved JSON alone instead of needing to reproduce it live
+  against the same model (Phase 9, item 9.1; spec.md Phase 9; excerpt direction fixed from an initial
+  tail-truncation during independent review). Passing scenarios are unaffected — the fields are only
+  added on failure.
 
 ### Changed
 - `ttft_sec` for `FoundryClient`/`PrismClient` now measures time to the first token of *either* kind
@@ -69,6 +80,18 @@ versions may include breaking changes).
 - `dev` extra now pulls in `charts` (`dev = [..., "benchrig[charts]"]`) so `pip install -e ".[dev]"` always
   installs `matplotlib`; `tests/test_report_charts.py` needs it and was failing in CI (and any fresh dev
   setup) because the `dev` and `charts` extras were independent.
+- `vram_baseline_dirty_mb` is now forwarded from the per-record `hardware` dict into the scorecard root
+  by `BenchmarkRunner.compute_model_scorecard` (`benchrig/core/runner.py`). Phase 2 item 2.2 had shipped
+  the per-record field, but the aggregation step dropped it, so every scorecard serialised the field as
+  `null` — even on a Linux + NVIDIA host where the value was always `0.0` (verified by replay: every
+  Sept 22 record carried `vram_baseline_dirty_mb: 0.0` in its `hardware` dict). New regression test
+  `tests/test_hardware_dirty_baseline.py::ScorecardDirtyMBForwardingTests` red-proven before the fix.
+- `tests/test_prism_runtime_live.py` now skips both live-test classes cleanly when free VRAM is below
+  `MIN_FREE_VRAM_MB` (8 GB), instead of failing confusingly with `insufficient_resources` 503s on a
+  busy host. The threshold is the 7B model's footprint; the smaller 0.6B model needs ~3 GB but the
+  load-lock race needs both models sized for the same GPU, so the same floor covers both. Skip
+  predicates combine prism reachability (`GET /v1/models`) with `nvidia-smi --query-gpu=memory.free`.
+  No code change in `benchrig/`.
 - `--csv <path>` and `--chart <path>` are now real CLI flags (`benchrig/cli.py`): `save_outputs` writes
   the scorecards CSV / PNG chart when requested and links/embeds them in `LATEST_SUMMARY.md` (relative
   to the report's directory). Phase 1 (items 1.1/1.2) had shipped the underlying
@@ -89,6 +112,15 @@ versions may include breaking changes).
   now fails that one scenario via the normal `_failure_result` path instead of raising an uncaught
   `ValueError`/`TypeError` out of `FoundryClient.generate()` and crashing the whole `--runs N` benchmark
   (Phase 6 independent review finding, fixed 2026-09-22; spec.md I8).
+- `extract_python_code` now dedents a *single* matched ```` ```python ```` block (`textwrap.dedent`) before
+  stripping it; a fence nested under a markdown list/bullet kept the list's leftover margin on some lines but
+  not others, which could raise `IndentationError` when the extracted code was spliced into the sandbox
+  script (Phase 9, item 9.2; spec.md Phase 9). Deliberately skipped when there is more than one fenced block:
+  a later block can be a continuation fragment (e.g. a method added to a class shown in an earlier fence)
+  whose indentation is relative to that block, not markdown noise, and dedenting it on its own would strip the
+  indentation that keeps it nested (independent review finding, fixed 2026-09-22). Hardening for a plausible
+  failure mode, not a confirmed fix for any specific past run — see spec.md Phase 9 for why the root cause of
+  the run that prompted this is still open.
 
 ## [0.1.0] - 2026-09-20
 

@@ -12,6 +12,10 @@ from benchrig.core.sandbox import extract_python_code, has_complete_code_block, 
 
 INTER_TEST_PAUSE_SEC = 0.5
 SANDBOX_TIMEOUT_SEC = 6.0
+# A coding scenario's prompt asks for code first, so the response's head is what a failed extraction needs to
+# diagnose; unlike reasoning's answer_excerpt (tail-truncated, since the final answer there comes last), a
+# coding response's own trailing prose must not crowd the code fence out of the excerpt.
+CODING_RESPONSE_EXCERPT_CHARS = 400
 
 # `generate()` failure signatures that mean "this model will not fit right now" rather than a transient
 # hiccup: retrying every remaining scenario (each with its own 503 retry budget) only spams the same
@@ -99,10 +103,14 @@ class BenchmarkRunner:
         client: BaseRuntimeClient,
         config: dict[str, Any],
         progress_callback: Callable[[str, str], None] | None = None,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.client = client
         self.config = config
         self.progress_callback = progress_callback
+        # Called with each scenario's result record as soon as it completes, so a caller can print it (or
+        # advance a progress bar) in real time instead of waiting for the whole suite to finish.
+        self.on_result = on_result
         self.specs = get_system_specs()
         self.vram_baseline_mb: float | None = None  # GPU memory in use before the model is loaded
         # True when a model was still loaded at that moment: the baseline then contains model memory (Prism, which has no
@@ -341,6 +349,8 @@ class BenchmarkRunner:
             record["eval_count"] = resp.get("eval_count", 0)
             record.update(score(sc, resp))
             results.append(record)
+            if self.on_result:
+                self.on_result(record)
 
             reason = self._capacity_error(resp)
             if reason:
@@ -421,7 +431,7 @@ class BenchmarkRunner:
             if resp.get("success") and self._is_truncated(resp, options) and not has_complete_code_block(text):
                 # The model was cut off before finishing its code: say so instead of reporting "name is not defined".
                 error = f"Response truncated at num_predict={options.get('num_predict')} before the code was complete"
-            return {
+            record = {
                 "success": resp["success"] and test_res["passed"],
                 "passed": test_res["passed"],
                 "passed_tests": test_res["passed_tests"],
@@ -429,6 +439,14 @@ class BenchmarkRunner:
                 "pass_ratio": test_res["pass_ratio"],
                 "sandbox_error": error,
             }
+            if not test_res["passed"]:
+                # Kept only on failure (spec.md Phase 9): lets the next 0-passed run be diagnosed from the JSON
+                # alone, instead of needing to reproduce it live against a model that may no longer say the same thing.
+                record["extracted_code"] = test_res["extracted_code"]
+                record["response_excerpt"] = (
+                    text if len(text) <= CODING_RESPONSE_EXCERPT_CHARS else text[:CODING_RESPONSE_EXCERPT_CHARS] + "..."
+                )
+            return record
 
         return self._run_suite("coding", "Coding Test", model, scenarios, score)
 
@@ -512,6 +530,8 @@ class BenchmarkRunner:
                 )
                 record["success"] = record["retrieved"]
             results.append(record)
+            if self.on_result:
+                self.on_result(record)
 
             reason = self._capacity_error(resp)
             if reason:
@@ -579,6 +599,17 @@ class BenchmarkRunner:
         )
         vram_baseline = baselines[len(baselines) // 2] if baselines else None
         baseline_dirty = any(r.get("hardware", {}).get("vram_baseline_dirty") for r in model_results)
+        # Foreign-process VRAM from the per-record `hardware` dict (plan.md Phase 2 item 2.2).
+        # Defaults to 0.0 when every record reports zero foreign MiB; stays None for records
+        # that pre-date the field. Forwarding the value to the scorecard root makes it
+        # observable in the JSON / CSV / Markdown — without this, the per-record field is the
+        # only place the noise floor can be read.
+        dirty_values = [
+            r["hardware"]["vram_baseline_dirty_mb"]
+            for r in model_results
+            if "vram_baseline_dirty_mb" in r.get("hardware", {})
+        ]
+        vram_baseline_dirty_mb = max(dirty_values) if dirty_values else None
         vram_model = max(0.0, peak_vram - vram_baseline) if vram_baseline is not None and not baseline_dirty else None
         truncated_runs = sum(1 for r in model_results if r.get("truncated"))
         usage_estimated = any(r.get("usage_estimated") for r in model_results)
@@ -654,6 +685,7 @@ class BenchmarkRunner:
             "vram_baseline_mb": round(vram_baseline, 1) if vram_baseline is not None else None,
             "vram_model_mb": round(vram_model, 1) if vram_model is not None else None,
             "vram_baseline_dirty": baseline_dirty,
+            "vram_baseline_dirty_mb": vram_baseline_dirty_mb,
             "truncated_runs": truncated_runs,
             "usage_estimated": usage_estimated,
             "context_retrieval_pct": round(context_retrieval, 1) if context_retrieval is not None else None,

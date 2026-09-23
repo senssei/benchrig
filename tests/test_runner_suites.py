@@ -66,6 +66,18 @@ class RunnerSuiteTests(unittest.TestCase):
         self.assertEqual(rec["eval_count"], 10)
         self.assertEqual(rec["total_time_sec"], 1.0)
 
+    def test_on_result_fires_per_scenario_before_the_suite_finishes(self):
+        """spec.md Phase 8: a caller sees each record as its scenario completes, not batched after the suite."""
+        seen: list[dict] = []
+        runner = BenchmarkRunner(client=self.client, config={}, on_result=seen.append)
+        scenarios = [
+            {"id": "s1", "name": "Speed 1", "prompt": "hi"},
+            {"id": "s2", "name": "Speed 2", "prompt": "hi"},
+        ]
+        results = runner.run_speed_suite("m", scenarios)
+        self.assertEqual([r["test_id"] for r in seen], ["s1", "s2"])
+        self.assertEqual(seen, results)
+
     def test_record_uses_engine_and_device_reported_with_the_response(self):
         """A multi-engine server (Prism) reports per model which engine and device served it; reports must show that."""
         original = self.client.generate
@@ -93,6 +105,48 @@ class RunnerSuiteTests(unittest.TestCase):
         self.assertTrue(COMMON_KEYS <= rec.keys())
         self.assertEqual((rec["passed_tests"], rec["total_tests"]), (1, 2))
         self.assertFalse(rec["success"])
+
+    def test_coding_suite_failure_keeps_extracted_code_and_response_for_diagnosis(self):
+        """spec.md Phase 9 item 9.1: a failing scenario's record must be diagnosable without re-running the model."""
+        self.client.response = "```python\ndef add(a, b):\n    return a - b\n```"
+        scenario = {
+            "id": "c1",
+            "name": "Add",
+            "prompt": "write add",
+            "test_assertions": ["assert add(1, 2) == 3"],
+        }
+        (rec,) = self.runner.run_coding_suite("m", [scenario])
+        self.assertFalse(rec["passed"])
+        self.assertIn("def add(a, b):", rec["extracted_code"])
+        self.assertIn("def add(a, b):", rec["response_excerpt"])
+
+    def test_coding_suite_response_excerpt_keeps_the_code_over_long_trailing_prose(self):
+        """Review finding: a coding response's code fence comes first; a tail-truncated excerpt (right for
+        reasoning, where the final answer is last) would drop it behind >400 chars of trailing explanation."""
+        self.client.response = "```python\ndef add(a, b):\n    return a - b\n```\n" + ("This is wrong because. " * 30)
+        scenario = {
+            "id": "c1",
+            "name": "Add",
+            "prompt": "write add",
+            "test_assertions": ["assert add(1, 2) == 3"],
+        }
+        (rec,) = self.runner.run_coding_suite("m", [scenario])
+        self.assertGreater(len(self.client.response), 400)
+        self.assertIn("def add(a, b):", rec["response_excerpt"])
+
+    def test_coding_suite_success_omits_diagnostic_fields(self):
+        """A passing scenario does not need its code/response kept around; do not bloat every record."""
+        self.client.response = "```python\ndef add(a, b):\n    return a + b\n```"
+        scenario = {
+            "id": "c1",
+            "name": "Add",
+            "prompt": "write add",
+            "test_assertions": ["assert add(1, 2) == 3"],
+        }
+        (rec,) = self.runner.run_coding_suite("m", [scenario])
+        self.assertTrue(rec["passed"])
+        self.assertNotIn("extracted_code", rec)
+        self.assertNotIn("response_excerpt", rec)
 
     def test_reasoning_suite_marks_correct_answer(self):
         scenario = {"id": "r1", "name": "Math", "prompt": "6*7?", "expected_answer": "42", "check_type": "numeric"}

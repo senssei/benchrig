@@ -1,9 +1,10 @@
 """Unit tests for benchmark.py CLI helpers (target resolution, pair lookup, comparison selection)."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from benchrig import cli as benchmark
+from benchrig.core.client import BaseRuntimeClient
 
 
 def fake_client(installed, reachable=True):
@@ -11,6 +12,29 @@ def fake_client(installed, reachable=True):
     client.is_reachable.return_value = reachable
     client.list_installed_models.return_value = [{"name": n} for n in installed]
     return client
+
+
+class GeneratingFakeClient(BaseRuntimeClient):
+    """A minimal real client (not a MagicMock) so `evaluate_model` can run its real BenchmarkRunner end to end."""
+
+    name = "fake"
+    display_name = "Fake"
+    engine_name = "fake-engine"
+
+    def __init__(self):
+        super().__init__(base_url="http://fake")
+
+    def generate(self, model, prompt, system=None, options=None, measure_ttft=True):
+        return {
+            "success": True,
+            "response": "42",
+            "eval_count": 1,
+            "eval_tok_per_sec": 1.0,
+            "prompt_eval_count": 1,
+            "prompt_tok_per_sec": 1.0,
+            "ttft_sec": 0.01,
+            "total_time_sec": 0.01,
+        }
 
 
 class ResolveTargetModelsTests(unittest.TestCase):
@@ -108,6 +132,57 @@ class PullRecommendedModelsTests(unittest.TestCase):
         }
         config = {"recommended_models": {}}
         benchmark.pull_recommended_models(clients, config, target_runtime="ollama")
+
+
+class TotalScenarioStepsTests(unittest.TestCase):
+    """spec.md/plan.md Phase 8, item 8.2: the overall progress bar's unit count."""
+
+    def test_counts_one_unit_per_target_run_and_scenario(self):
+        scenarios = {"speed": [{"id": "s1"}, {"id": "s2"}], "coding": [{"id": "c1"}]}
+        self.assertEqual(benchmark._total_scenario_steps(scenarios, runs=2, num_targets=3), 18)  # 3 scenarios * 2 * 3
+
+    def test_zero_scenarios_is_zero_not_a_crash(self):
+        self.assertEqual(benchmark._total_scenario_steps({}, runs=1, num_targets=5), 0)
+
+
+class EvaluateModelProgressTests(unittest.TestCase):
+    """Review finding: evaluate_model's on_progress wiring (Phase 8, item 8.2) had no test at all."""
+
+    def setUp(self):
+        patches = [
+            patch("benchrig.core.runner.time.sleep"),
+            patch("benchrig.core.runner.get_system_specs", return_value={}),
+            patch("benchrig.cli.time.sleep"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        sampler_patch = patch("benchrig.core.runner.HardwareSampler")
+        mock_sampler_cls = sampler_patch.start()
+        self.addCleanup(sampler_patch.stop)
+        mock_sampler = mock_sampler_cls.return_value
+        mock_sampler.provider.read_gpu.return_value = (0.0, 0.0, 0.0, 0.0, 0.0)
+        mock_sampler.provider.read_gpu_foreign_memory_mb.return_value = 0.0
+        mock_sampler.stop.return_value = {}
+        self.client = GeneratingFakeClient()
+
+    def test_on_progress_fires_once_per_scenario_across_suites_and_runs(self):
+        scenarios = {
+            "speed": [{"id": "s1", "name": "Speed 1", "prompt": "hi"}, {"id": "s2", "name": "Speed 2", "prompt": "hi"}],
+        }
+        seen = []
+        results = benchmark.evaluate_model(
+            "fake", self.client, "m", config={}, suites=["speed"], scenarios=scenarios, runs=2, on_progress=seen.append
+        )
+        self.assertEqual(len(seen), 4)  # 2 scenarios * 2 runs
+        self.assertEqual(seen, results)
+
+    def test_on_progress_is_optional(self):
+        scenarios = {"speed": [{"id": "s1", "name": "Speed 1", "prompt": "hi"}]}
+        results = benchmark.evaluate_model(
+            "fake", self.client, "m", config={}, suites=["speed"], scenarios=scenarios, runs=1
+        )
+        self.assertEqual(len(results), 1)
 
 
 if __name__ == "__main__":
