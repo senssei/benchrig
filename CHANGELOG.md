@@ -7,6 +7,14 @@ versions may include breaking changes).
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.2.0] - 2026-09-23
+
+### Added
 - CSV export of scorecards (`benchrig.reporting.csv_export.write_scorecards_csv`) with a fixed column order
   (`SCORECARD_CSV_COLUMNS`). Wired to the upcoming `--csv <path>` CLI flag (Phase 1, item 1.1).
 - PNG chart export of scorecards (`benchrig.reporting.charts.write_scorecards_chart`) with one bar per
