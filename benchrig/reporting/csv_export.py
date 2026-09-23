@@ -24,6 +24,7 @@ SCORECARD_CSV_COLUMNS: tuple[str, ...] = (
     "avg_ttft_sec",
     "peak_vram_mb",
     "total_runs",
+    "eval_tok_sec_floored",
 )
 
 

@@ -8,6 +8,60 @@ versions may include breaking changes).
 
 ### Added
 
+- `eval_tok_sec_floored` boolean flag (Phase 10): `FoundryClient`/`PrismClient` set it on every
+  response whose raw eval window is under 1.5 ms (the 0.001 s measurement floor engaged for at
+  least one token; Ollama reports its own duration and is never flagged). `runner.py` copies it onto
+  each record and sets the scorecard's `eval_tok_sec_floored` (true if any record is floored).
+  - Markdown: leaderboard row renders the speed cell with a tilde prefix (`~3000.0 t/s`)
+    so operators can distinguish a real 3 000 t/s measurement from a floor-driven ceiling.
+  - CSV export: new `eval_tok_sec_floored` boolean column appended to
+    `SCORECARD_CSV_COLUMNS` so downstream pipelines can filter out floor-driven speeds.
+
+- Structured logging on stderr via the new `benchrig.core.logging` module
+  (`JsonFormatter` + `RunIdFilter` + `setup_logging(level, run_id)`). One JSON
+  record per log call on stderr, configurable via the upcoming `--log-level`
+  flag and `BENCHRIG_LOG_LEVEL` env var (Phase 11, item 11.1). The current
+  `rich.console` UX on stdout is unchanged.
+- New `--log-level {DEBUG,INFO,WARNING,ERROR}` CLI flag and `BENCHRIG_LOG_LEVEL`
+  env var (Phase 11, item 11.2). Default `WARNING` keeps stderr silent; set
+  `INFO` for one JSON line per HTTP request / retry / capacity wait. A
+  per-invocation `run_id` (UUID4) is threaded through every record so an operator
+  can filter a single run out of a noisy shared log. `run.started` /
+  `run.completed` events book-end every benchmark invocation.
+- New `docs/cli.md` §5 "Logging" section documenting the JSON record shape,
+  event table, and `jq` filtering example.
+- `FoundryClient._make_request` now emits HTTP lifecycle events
+  (`http.request_started` / `http.response_completed` / `http.request_failed`)
+  around every `requests.post`. The hook is the one `PrismClient` inherits for
+  its 503-retry path, so this covers every Prism/Foundry HTTP call. Phase 11,
+  item 11.3.
+- `_post_with_503_retry` now emits `retry.attempted` (INFO per retry) and
+  `retry.exhausted` (WARNING when the budget runs out) with `attempt`, `delay_sec`,
+  and `reason` from the JSON body. The previous `_log.info` text-format strings
+  are replaced with structured events; the Python exception path (`PrismBusyError`)
+  is unchanged. Phase 11, item 11.4.
+- `BenchmarkRunner._capacity_exhausted_reason` now emits `capacity.exhausted`
+  (WARNING) when a persistent 503 with `insufficient_resources` short-circuits
+  the remaining scenarios. The rich UX `_notify` line is unchanged. Phase 11,
+  item 11.5.
+- `PrismClient.unload_model` now emits `unload.completed` (DEBUG with `ok=true`)
+  on a successful `POST /v1/unload`, and the same event with `ok=false`,
+  `error=…` on transport failure or non-2xx. Best-effort contract (always
+  returns `True`) preserved. Phase 11, item 11.6.
+- `OllamaClient` now goes through the same `_make_request` instrumentation
+  hook (`http.request_started` / `http.response_completed` / `http.request_failed`
+  events) on its generate/unload paths. Phase 11 follow-up — the hook was
+  scoped to `FoundryClient`/`PrismClient` in 11.3; `OllamaClient` had direct
+  `requests.post` calls outside the hook. The shared `_logged_request` helper
+  refactor keeps both paths identical. Existing tests in `tests/test_ollama_think.py`
+  had their `time.perf_counter` fixtures widened by 2 positions to account for
+  the new HTTP hook reads.
+- `OllamaClient.is_reachable`, `get_version`, `list_installed_models`,
+  `get_running_models`, `supports_thinking` (POST `/api/show`), `pull_model`
+  (POST `/api/pull`) all flow through the instrumented hook. The new
+  `_logged_get` helper plus `_make_get` method mirror the POST helper so GET
+  requests carry `method=GET` in the JSON record. Phase 11 follow-up completion.
+
 ### Changed
 
 ### Fixed

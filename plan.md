@@ -474,46 +474,207 @@ forward.
 
 ## Phase 10: Display honesty for floor-driven decode-speed ceilings
 
-Status: not approved yet. Surfaced during the Sept 22 anomaly verification
-(`results/ANOMALY_VERIFICATION.md`). A measurement floor in
-`benchrig/core/client.py:877-885` (`eval_duration_sec = max(0.001, end_wall_time -
-first_token_time)`) prevents divide-by-zero on sub-millisecond generations, but
-the resulting displayed speed is a meaningless ceiling (`eval_count=3 / 0.001s =
-3000.0 t/s` for Phi-4-mini on every 4-digit-number context-suite answer; same
-artifact at `6000.0 t/s` for Phi-3.5 on the same answers). The Markdown report
-shows the bare number — no annotation that the floor was applied, no
-distinction from a real `3000 t/s` measurement. Intent.md Constraint 5
-("Numbers reported are honest") is technically upheld (the speed is what the
-client measured) but the **display** is misleading when the answer is short
-enough that the floor engages.
+Status: shipped 2026-09-23. Review (2026-09-23, fresh-context `general-purpose` subagent, together with
+Phase 11): 16 findings in total; the Phase 10 ones — (1, High) `_base_record` never copied the flag, so the tilde and
+the CSV `True` could not appear in a real run (the tests set it on hand-built scorecards); (2, Medium) a raw eval
+window of exactly 0.0 was not flagged; (3, Medium) Ollama was flagged although it has no floor (operator: floor path
+only); (9, Medium) no Phase 10 text in `spec.md`, wrong scorecard key in CHANGELOG, no legend; (16, Info) untested
+boundaries, non-streaming path, Ollama, runner propagation, older run JSON — all fixed test-first (13, the
+whole-scorecard `~` over-warning, is deferred with the operator's yes: see Backlog). Surface surfaced during
+the Sept 22 anomaly verification (`results/ANOMALY_VERIFICATION.md`). A measurement floor
+in `benchrig/core/client.py` (`eval_duration_sec = max(0.001, end_wall_time -
+first_token_time)`) prevents divide-by-zero on sub-millisecond generations, but the
+resulting displayed speed is a meaningless ceiling (`eval_count=3 / 0.001s = 3000.0 t/s`
+for Phi-4-mini on every 4-digit-number context-suite answer; same artifact at
+`6000.0 t/s` for Phi-3.5 on the same answers). The Markdown report shows the bare number
+— no annotation that the floor was applied, no distinction from a real `3000 t/s`
+measurement. Intent.md Constraint 5 is technically upheld (the speed is what the client
+measured) but the **display** is misleading when the answer is short enough that the
+floor engages.
 
-- [ ] Item 10.1: annotate floored decode-speed values in Markdown, CSV, and the per-record
-         dict so the operator can distinguish `3000 t/s` (floor × 3 tokens) from a real
-         3 000 t/s generation. Operator decision required before implementation: which
-         display form? `(~3000 t/s)`, `(3000 t/s, floor)`, an extra column, a separator
-         row, or a downstream-tool convention. The change sits in the reporting layer
-         (markdown + csv_export) and one extra per-record key from `client.py`; no
-         measurement change.
-         Files: `benchrig/core/client.py` (set `eval_tok_sec_floored: bool`),
-                `benchrig/reporting/markdown.py` (render conditional),
-                `benchrig/reporting/csv_export.py` (carry flag forward),
-                `tests/test_prism_runtime.py` (`ContextSuiteFloorSpeedAnnotationTests`).
-         Test (red-first): a streamed response with `eval_count=3` and
-         `eval_duration_sec=0.0005` (floor-engaging) produces a record with the new flag
-         set; the rendered Markdown contains the chosen annotation; a response with
-         `eval_duration_sec=0.005` (real) does NOT set the flag.
-         Risk: the chosen display form may be controversial; defer until operator pick.
+**Operator decisions (2026-09-23):**
 
-**Open questions for the operator (do not implement without a decision):**
-1. Which display form for floored decode-speed values? (~, asterisk, separate column, both)
-2. Should the floor artifact be retroactively flagged in the existing Markdown reports, or
-   only future runs?
-3. Does the CSV export need the flag (operators may analyze from CSV programmatically), or
-   is the human-facing Markdown annotation enough?
+1. **Display form**: tilde prefix on the speed cell — `~3000.0 t/s` in the Markdown table. Minimal,
+   readable, no new column. Markdown only — no separate column / footnote.
+2. **Retroactive**: forward-only. Existing `LATEST_SUMMARY.md` files are left untouched.
+   The annotation ships with the next run that hits the floor.
+3. **CSV**: yes — add `eval_tok_sec_floored: bool` column to `SCORECARD_CSV_COLUMNS` so operators
+   parsing CSV programmatically can filter out floor-driven values.
+
+### Plan items
+
+- [x] <!-- Item 10.1: Annotate floored decode-speed values in Markdown (tilde prefix) and CSV
+         (new `eval_tok_sec_floored` boolean column). One per-record flag from `client.py` is
+         carried through to scorecards; the reporting layer reads the flag.
+         Files: benchrig/core/client.py (set eval_tok_sec_floored when the floor engages on
+         the streaming path; same for non-streaming eval_duration_sec < 0.0015 and small eval_count),
+                benchrig/reporting/markdown.py (render ~3000.0 t/s when floored),
+                benchrig/reporting/csv_export.py (carry eval_tok_sec_floored through the row),
+                tests/test_floor_speed_annotation.py (new; holds the client, Markdown and CSV
+                tests below in one file — corrected 2026-09-23, the plan originally named
+                tests/test_prism_runtime.py, tests/test_report_markdown.py and tests/test_report_csv.py).
+         Test (red-first):
+           - test_eval_tok_sec_floored_true_when_floor_engages: a streamed response with
+             eval_count=3 and eval_duration_sec < 0.0015 produces a record with
+             eval_tok_sec_floored=True.
+           - test_eval_tok_sec_floored_false_when_real: a response with
+             eval_duration_sec=0.005 and eval_count=10 has eval_tok_sec_floored=False.
+           - test_markdown_renders_tilde_when_floored: a scorecard with
+             eval_tok_sec_floored=True renders the cell as ~<value> t/s.
+           - test_markdown_renders_plain_when_real: a scorecard with
+             eval_tok_sec_floored=False renders the cell as <value> t/s (no tilde).
+           - test_csv_carries_eval_tok_sec_floored_column: SCORECARD_CSV_COLUMNS ends with the
+             new boolean column and it round-trips through the exporter.
+         Risk: the tilde prefix is a minor textual change to existing Markdown columns. Operators
+         piping the Markdown through grep may need to update their regex. Documented in
+         docs/cli.md or docs/benchmark-suites.md (whichever carries the scorecard column legend).
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (354 passed, 4 skipped). -->
+
+---
+
+## Phase 11: Structured logging on stderr
+
+Status: shipped 2026-09-23 (items 11.1-11.7 all green). Review (2026-09-23, fresh-context `general-purpose`
+subagent, together with Phase 10): 16 findings, triaged with the operator. Fixed test-first: (4) Prism's
+`_make_request` bypassed `_logged_request`, so Prism emitted no `http.*` events; (5) `response_completed` was logged
+for non-2xx, Foundry/Prism records had `model: null` (spec text corrected: `ttft_sec`/`eval_count` are not known at
+the HTTP layer); (6, operator: probes at DEBUG) a stopped Ollama daemon printed JSON at the default WARNING level;
+(7, operator: remove) `--check`/`--pull-recommended` emitted unplanned `run.started`; (8) `run.completed` carried
+`scorecards_produced`/`targets_planned` instead of the spec's `models_ok`/`models_skipped`; (10) `unload.completed`
+failure was INFO, not DEBUG; (11) `taskName` leaked into every JSON record; (12) `--log-level debug` was rejected while
+the env var accepted it, and the invalid-level message went to stdout; `CRITICAL` was accepted although spec lists
+four levels. Not defects: (15) the positional `perf_counter` mocks in `tests/test_ollama_think.py` are brittle but
+reshuffled, not weakened; (11, part) `NaN`/reserved-key extras/`setup_logging("BOGUS")` have no call site. Deferred
+with the operator's yes: (13), (14) — see Backlog. Whole-suite gate exit 0; the fixes were verified by tests, not
+re-reviewed by a second fresh subagent.
+
+Surfaced by the operator ("dodaj logowanie i trace-yy") the same day `v0.2.0` shipped.
+Scope: stdlib `logging` emitting JSON-shaped records to stderr, configurable via
+`--log-level` flag or `BENCHRIG_LOG_LEVEL` env var. Default level `WARNING` (silent
+stderr, matching today's UX). Out of scope: OpenTelemetry, file output, log
+rotation, OTLP export. Stdout UX (rich.console.print, progress bar, Markdown
+scorecard) is unchanged — every event documented below is *additional* to the UX,
+not a duplicate.
+
+### Why
+
+- Phase 9 captured per-record `extracted_code`/`response_excerpt` so 0-passed runs
+  can be diagnosed from the JSON alone. Same need, broader surface: today there is no
+  machine-parseable trail of HTTP retries, capacity waits, or run lifecycle events.
+- `benchrig/core/client.py` already has a `_log` (`logging.getLogger(__name__)`) used
+  3 times (503 retries, unload failures). That logger was never configured; an INFO
+  record went nowhere visible. Phase 11 wires it.
+
+### Plan items
+
+- [x] <!-- Item 11.1: Logging module (formatter + filter + setup).
+         Files: benchrig/core/logging.py (new), tests/test_logging.py (new).
+         Test:
+           - test_json_formatter_emits_required_fields: a record logged through
+             JsonFormatter serialises to one JSON object with keys ts/level/event/message.
+           - test_run_id_filter_injects_contextvar: a record logged after
+             setup_logging(run_id=…) carries that run_id; outside, field is absent.
+           - test_setup_logging_replaces_existing_stderr_handler: idempotent (no dup
+             stderr lines across re-calls of setup_logging in the same process).
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (326 passed, 4 skipped). -->
+
+- [x] <!-- Item 11.2: CLI surface for log level.
+         Files: benchrig/cli.py (`build_parser`, `main`, `run_benchmarks` top-level),
+                benchrig/core/logging.py (already shipped in 11.1),
+                docs/cli.md (§5 Logging),
+                tests/test_cli_logging.py (new).
+         Test:
+           - test_log_level_flag_default_is_warning: `--log-level` absent → WARNING.
+           - test_log_level_flag_accepts_debug: `--log-level DEBUG` round-trips through parser.
+           - test_env_var_overrides_flag_default: BENCHRIG_LOG_LEVEL=DEBUG → DEBUG.
+           - test_flag_overrides_env_var: explicit flag wins over env.
+           - test_invalid_level_exits_non_zero: garbage value → clear error + exit 2.
+           - test_run_started_event_fires_with_argv_runtime_num_models_runs.
+           - test_run_completed_event_fires_with_total_duration (in finally, even on exit).
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (333 passed, 4 skipped). -->
+
+- [x] <!-- Item 11.3: HTTP lifecycle log events on every requests.post from
+         benchrig.core.client (OllamaClient, FoundryClient, PrismClient).
+         Files: benchrig/core/client.py (instrument the `_make_request` hook),
+                tests/test_client_logging.py (new).
+         Test:
+           - test_request_started_logged_on_post_with_attempt (FoundryClient hook).
+           - test_response_completed_carries_status_code_and_duration.
+           - test_request_failed_on_transport_error_logs_warning.
+           - test_warning_level_suppresses_http_info_events.
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (337 passed, 4 skipped).
+         Scope note: this item instruments the FoundryClient `_make_request` hook
+         (which PrismClient inherits and overrides for the 503 retry path). OllamaClient
+         has direct `requests.post` calls outside this hook that are not yet instrumented;
+         tracked as a follow-up for a later phase (low priority — Ollama runs locally so
+         HTTP failure is rare; the failure path is `_make_request` on Prism). -->
+
+- [x] <!-- Item 11.4: Retry events for the Prism 503 helper.
+         Files: benchrig/core/client.py (`_post_with_503_retry`),
+                tests/test_retry_logging.py (new).
+         Test:
+           - test_retry_attempted_logged_with_delay_and_reason (INFO, attempt=1).
+           - test_retry_exhausted_logs_warning_with_reason (WARNING, attempt=4).
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (339 passed, 4 skipped). -->
+
+- [x] <!-- Item 11.5: Capacity-exhaustion events from `BenchmarkRunner`.
+         Files: benchrig/core/runner.py (`_capacity_exhausted_reason` path),
+                tests/test_runner_logging.py (new).
+         Test:
+           - test_capacity_exhausted_logged_with_reason: a scenario with a 503 carrying
+             `insufficient_resources` triggers `event=capacity.exhausted` at WARNING
+             with `model` and `reason`.
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (342 passed, 4 skipped). -->
+- [x] <!-- Item 11.6: Unload events for Prism.
+         Files: benchrig/core/client.py (`PrismClient.unload_model`),
+                tests/test_unload_logging.py (new).
+         Test:
+           - test_unload_ok_logs_debug_with_model (DEBUG, ok=true).
+           - test_unload_failed_still_returns_true_but_logs (DEBUG, ok=false, error=…).
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (342 passed, 4 skipped). -->
+- [x] <!-- Item 11.7: Docs (`docs/cli.md` new section "Logging") + CHANGELOG.md entry.
+         Files: docs/cli.md ("Logging" section between "Output" and §6, with
+                --log-level + BENCHRIG_LOG_LEVEL examples and JSON-shape sample),
+                CHANGELOG.md (`### Added` under [Unreleased]).
+         Test: tests/test_docs.py::DocsCoverageTests::test_every_cli_option_is_documented
+                exercises this indirectly: --log-level is in the CLI parser and is
+                asserted to appear in docs/cli.md (`2026-09-23` redaction catches this).
+
+**Follow-up 2026-09-23:** OllamaClient.generate + OllamaClient.unload_model
+also route through the instrumented hook. Shared `_logged_request` helper;
+`tests/test_ollama_think.py` widened by 2 perf_counter positions to account
+for the new HTTP-hook reads. No plan-item numbering: this was a deferred
+extension of 11.3.
+         Status: shipped 2026-09-23; sdlc_check.py exit 0 (342 passed, 4 skipped). -->
+**Risks and open questions:**
+
+- Volume on long runs: a 12-scenario reasoning suite at `--runs 3` produces ~36
+  http.request_started events per model at INFO. With `--runtime all` and 5 models,
+  ~180 records per invocation. Document in `docs/cli.md`; the default WARNING keeps
+  the JSON stderr silent in normal runs.
+- `--log-level` is additive — it must not fight with a future `--verbose`/`--quiet`.
+  Consolidate on a single verbosity flag if any appear.
+- `rich.console.print` to stdout stays as-is. Do not migrate to logging; that would
+  rewrite the UX layer beyond Phase 11's scope.
+- `run_id` is one UUID per `cli.py::main` invocation, shared across all sub-runs
+  (`--runtime all`, `--runs N`). This is deliberate: a single run_id correlates
+  every record from one CLI call.
+- Defer: file output, log rotation, OpenTelemetry OTLP, trace_id/span_id propagation.
+  Re-scope into a numbered phase when needed.
 
 ---
 
 ## Backlog (not scheduled)
+
+- **Scorecard-wide `~` is coarse (Phase 10 review finding 13).** `compute_model_scorecard` sets `eval_tok_sec_floored`
+  when *any* token-producing record is floored, so one sub-1.5 ms answer among hundreds of real ones marks the whole
+  leaderboard speed `~` although the token-weighted average is dominated by real records. Decide a rule first (flag only
+  when floored records carry most tokens? show a count?) — operator deferred, 2026-09-23.
+- **Log write inside the measured TTFT window (Phase 11 review finding 14).** `start_wall_time` is taken before
+  `_make_request`, so at `--log-level INFO`/`DEBUG` the `http.request_started` write (JSON format + stderr) lands
+  inside TTFT and slightly inflates it (Constraint 5). The default WARNING is unaffected. Fix would be to log before
+  taking `start_wall_time` (or take the timestamp after the log call) — operator deferred, 2026-09-23; until then, do
+  not compare timings taken at INFO/DEBUG with timings taken at WARNING.
 
 Surfaced while specifying Phase 6 against `~/03-foundy-local` `main`; none are approved for implementation.
 Re-scope into a numbered phase (with its own `spec.md` section and operator approval) before starting any of these.

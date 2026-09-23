@@ -246,3 +246,84 @@ question for the operator; no invariant or new behavior is specified for it yet.
   one fence and a method continuation (indented relative to that class, not to markdown) in a second fence. Since
   there is no reliable way to tell "spurious markdown-list margin" from "intentional continuation indent" once
   there is more than one fence, dedenting is now scoped to the unambiguous case (exactly one fence) only.
+
+### Phase 10: Display honesty for floor-driven decode-speed ceilings
+
+`FoundryClient`/`PrismClient` floor the eval window at 0.001 s (`eval_duration_sec = max(0.001, raw)`) so a
+sub-millisecond generation cannot divide by zero. The resulting `eval_tok_per_sec` (for example `3 tokens / 0.001 s =
+3000.0 t/s`) is a ceiling produced by the floor, not a measurement. Intent Constraint 5 (report what was measured) is
+upheld by *labelling* such values, never by changing them.
+
+- **Per-response flag.** `FoundryClient`/`PrismClient.generate()` set `eval_tok_sec_floored = True` when `eval_count > 0`
+  and the raw eval window is below `EVAL_DURATION_FLOOR_THRESHOLD_SEC` (0.0015 s), including a raw window of exactly
+  0.0, on both the streaming and the non-streaming path; otherwise `False`. `OllamaClient` reports its own
+  `eval_duration` and applies no floor, so it always sets `False`.
+- **Record and scorecard.** `BenchmarkRunner._base_record` copies the flag onto the per-scenario record when true (the key
+  is absent otherwise, so raw run JSON stays unchanged for unaffected records). `compute_model_scorecard` sets the
+  scorecard's `eval_tok_sec_floored` to true if any token-producing record is floored.
+- **Markdown.** The leaderboard speed cell renders `~<value> t/s` for a floored scorecard, plain `<value> t/s` otherwise.
+  Forward-only: existing reports are not rewritten.
+- **CSV.** `SCORECARD_CSV_COLUMNS` ends with `eval_tok_sec_floored` (`True`/`False`; a scorecard from a run that predates the
+  flag exports an empty cell — unknown, not `False` — and the column is never missing — I1).
+- **Known limit.** One floored answer among many real ones marks the whole scorecard `~` (tracked in `plan.md` Backlog).
+
+### Phase 11: Structured logging on stderr (no stdout UX change)
+
+Operator request after `v0.2.0`: make benchrig's diagnostic events machine-parseable
+without changing the colored terminal UX that `rich.console.print` provides today.
+Stdlib `logging` only — no OpenTelemetry, no file output, no log aggregation. Stderr
+gets one JSON object per record; stdout keeps the rich UX untouched.
+
+**Surface:**
+
+- New module `benchrig/core/logging.py`:
+  - `JsonFormatter(logging.Formatter)` — emits one JSON object per record with the
+    stable shape `{"ts": "<ISO 8601 UTC, ms precision>", "level": "<DEBUG|INFO|...|CRITICAL>",
+    "event": "<dotted name>", "run_id": "<uuid4 or absent>", "message": "<formatted>"}`,
+    plus any per-event extras (`model`, `runtime`, `engine`, `attempt`,
+    `duration_sec`, `ttft_sec`, `eval_count`, `ok`, `error`, `reason`, `delay_sec`,
+    `url`, `total_duration_sec`, `models_ok`, `models_skipped`, `argv`, `num_models`,
+    `runs`). Keys are always strings; numeric values are JSON numbers; booleans JSON
+    booleans.
+  - `RunIdFilter(logging.Filter)` — reads `run_id` from a `contextvars.ContextVar`
+    that `cli.py::main` sets at startup; absent when unset (tests).
+  - `setup_logging(level: str = "WARNING", run_id: str | None = None) -> logging.Logger`
+    — installs a `StreamHandler(sys.stderr)` with the formatter + filter on the benchrig
+    logger (idempotent: replaces any existing handler, never duplicates).
+- New CLI flag `--log-level {DEBUG,INFO,WARNING,ERROR}` (default `WARNING`) and env
+  var `BENCHRIG_LOG_LEVEL` (overrides the default; `--log-level` overrides the env).
+  Invalid values clear-message + non-zero exit.
+
+**Events (level = when):**
+
+| event | level | where | fields |
+|---|---|---|---|
+| `run.started` | INFO | `cli.py::run_benchmarks` top | `argv`, `runtime`, `num_models`, `runs` |
+| `run.completed` | INFO | `cli.py::run_benchmarks` finally | `total_duration_sec`, `models_ok`, `models_skipped` |
+| `http.request_started` | INFO | every `requests.post` in `benchrig/core/client.py` | `model`, `runtime`, `engine`, `url`, `attempt` |
+| `http.response_completed` | INFO | on 2xx | `model`, `runtime`, `engine`, `attempt`, `status_code`, `duration_sec` |
+| `http.request_failed` | WARNING | on non-2xx (every attempt, so each 503 of a `PrismBusyError` run) or a transport error | `model`, `runtime`, `engine`, `attempt`, `error`, `status_code` (non-2xx) |
+| `retry.attempted` | INFO | per retry in `_post_with_503_retry` | `attempt`, `delay_sec`, `reason` |
+| `retry.exhausted` | WARNING | budget run out | `attempt`, `reason` |
+| `capacity.exhausted` | WARNING | `BenchmarkRunner._capacity_exhausted_reason` triggers | `model`, `reason` |
+| `unload.completed` | DEBUG | `PrismClient.unload_model` returns | `model`, `ok`, `error` (when failed) |
+
+`ttft_sec` and `eval_count` are not on `http.response_completed`: a streamed response is only parsed after the HTTP layer
+returns, so they are not known there (they are in the JSON report). `http.request_failed` for a GET (health/version/list
+probes such as `is_reachable`) is logged at DEBUG, not WARNING: a stopped daemon is an expected answer to a probe and
+must not print JSON on stderr at the default level. `--check` and `--pull-recommended` are not benchmark runs and emit
+no `run.*` events.
+
+**What is NOT logged:**
+
+- Per-scenario PASS/FAIL (`on_result` already prints; the JSON report and Markdown
+  scorecard carry the same information). Adding a duplicate event would 4× volume on
+  a 12-scenario reasoning run with `--runs 3`.
+- Scorecard aggregation (progress bar + Markdown report already cover it).
+- Anything emitted on stdout by `rich.console.print` (UX). The colored output stays
+  where the operator sees it today.
+
+**Out of scope (defer to a later phase):** file output (`--log-file`), log rotation,
+OpenTelemetry OTLP export, `trace_id`/`span_id` propagation, integration with the
+external `~/03-foundy-local` server. Re-scope into a numbered phase when needed.
+

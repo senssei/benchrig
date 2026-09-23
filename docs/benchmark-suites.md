@@ -20,6 +20,7 @@ The speed suite evaluates inference latency, maximum decoder velocity, and promp
 * **Time-to-First-Token (TTFT)**: High-resolution timestamp delta from HTTP socket dispatch to the arrival of the first completion byte.
 * **Prefill Speed (Prompt Tokens/s)**: Hardware throughput while ingesting and calculating initial attention keys/values for the prompt.
 * **Decode Speed (Completion Tokens/s)**: Sequential auto-regressive generation speed of output tokens.
+  A `~` prefix in the report (`~3000.0 t/s`) marks a value produced by the 0.001 s measurement floor on a very short answer, not a real measurement; the CSV column `eval_tok_sec_floored` carries the same flag.
 
 ---
 

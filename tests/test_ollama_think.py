@@ -87,9 +87,19 @@ class ThinkingStreamTests(unittest.TestCase):
             return OllamaClient().generate("deepseek-r1:14b", "hi", options={"think": True})
 
     def test_ttft_is_the_first_token_of_any_kind_and_the_answer_is_reported_separately(self):
+        # Fixture values for ``times`` account for the additional ``time.perf_counter``
+        # calls introduced by both ``OllamaClient._make_request`` and ``supports_thinking``
+        # (each goes through ``_logged_request`` and consumes 2 perf_counter readings).
+        # On a fresh OllamaClient() the consume order is:
+        #   0..1 = supports_thinking HTTP hook (started_at + duration)
+        #   2    = start_wall_time
+        #   3..4 = generate HTTP hook (started_at + duration)
+        #   5    = first thinking token, 6 = first answer token, 7 = end_wall_time
+        # ttft_sec = first_thinking - start_wall_time = 3.0 - 2.0 = 1.0
+        # answer_ttft_sec = first_answer - start_wall_time = 7.0 - 2.0 = 5.0
         result = self.generate(
             [{"thinking": "let me"}, {"thinking": " see"}, {"response": "42"}, DONE],
-            [0.0, 1.0, 5.0, 6.0],  # start, first thinking token, first answer token, end
+            [0.0, 0.0, 2.0, 0.0, 0.0, 3.0, 7.0, 8.0],
         )
         self.assertEqual(result["ttft_sec"], 1.0)
         self.assertEqual(result["answer_ttft_sec"], 5.0)
@@ -98,8 +108,18 @@ class ThinkingStreamTests(unittest.TestCase):
         self.assertIs(result["think"], True)
 
     def test_a_response_that_never_left_the_thinking_phase(self):
-        """The budget ran out while thinking: there is no answer token, but the latency is still the first token."""
-        result = self.generate([{"thinking": "hmm"}, {**DONE, "done_reason": "length"}], [0.0, 2.0, 9.0])
+        """The budget ran out while thinking: there is no answer token, but the latency is still the first token.
+
+        Same consume order as ``test_ttft_is_the_first_token_of_any_kind_...`` but
+        only one thinking chunk and no answer chunk:
+          0..1 = supports_thinking hook, 2 = start_wall_time, 3..4 = generate hook,
+          5 = first thinking token, 6 = end_wall_time.
+        ttft_sec = first_thinking - start_wall_time = 3.0 - 1.0 = 2.0.
+        """
+        result = self.generate(
+            [{"thinking": "hmm"}, {**DONE, "done_reason": "length"}],
+            [0.0, 0.0, 1.0, 0.0, 0.0, 3.0, 10.0],
+        )
         self.assertEqual(result["ttft_sec"], 2.0)
         self.assertIsNone(result["answer_ttft_sec"])
         self.assertEqual(result["response"], "")
@@ -107,12 +127,19 @@ class ThinkingStreamTests(unittest.TestCase):
 
     def test_a_model_that_does_not_think_reports_no_thinking(self):
         post, _ = fake_ollama([], stream({"response": "hi"}, DONE))
+        # Phase 11 follow-up: this test does NOT call `supports_thinking` (the option
+        # dict has no `think` key, so the body skips it), so the fixture has 5 readings:
+        #   0=start_wall_time, 1..2=generate HTTP hook (start + duration),
+        #   3=first answer token, 4=end.
         with (
             patch("requests.post", side_effect=post),
-            patch("benchrig.core.client.time.perf_counter", side_effect=[0.0, 0.5, 1.0]),
+            patch(
+                "benchrig.core.client.time.perf_counter",
+                side_effect=[0.0, 0.5, 0.6, 1.0, 2.0],
+            ),
         ):
             result = OllamaClient().generate("phi4-mini:latest", "hi")
-        self.assertEqual((result["ttft_sec"], result["answer_ttft_sec"], result["thinking_chars"]), (0.5, 0.5, 0))
+        self.assertEqual((result["ttft_sec"], result["answer_ttft_sec"], result["thinking_chars"]), (1.0, 1.0, 0))
         self.assertIsNone(result["think"])
 
     def test_non_streaming_reads_the_thinking_field(self):

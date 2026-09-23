@@ -21,6 +21,14 @@ _PRISM_RETRY_AFTER_CAP_SEC = float(os.environ.get("BENCHRIG_PRISM_RETRY_AFTER_CA
 # reasonable budget for a benchmark run that needs to finish in seconds-to-minutes.
 _PRISM_503_MAX_RETRIES = 3
 
+# Phase 10: when the eval wall-clock window is sub-millisecond (short answer, fast
+# model), ``eval_duration_sec`` is floored to 0.001 to avoid divide-by-zero. The
+# resulting ``eval_count / 0.001s`` ceiling is meaningful for ops but misleading as
+# a "real" decode speed. Any raw window strictly less than this threshold is flagged
+# so the Markdown leaderboard can render the value with a tilde prefix (~3000.0 t/s)
+# and the CSV export can carry a boolean column.
+EVAL_DURATION_FLOOR_THRESHOLD_SEC = 0.0015
+
 
 class PrismBusyError(RuntimeError):
     """Raised after `PrismClient` exhausts its retry budget on 503 from prism-local.
@@ -37,37 +45,108 @@ class PrismBusyError(RuntimeError):
         super().__init__(f"prism-local kept responding 503 ({attempts} attempts): {reason}")
 
 
+def _logged_request(
+    runtime: str,
+    engine: str,
+    url: str,
+    *,
+    method: str = "POST",
+    **kwargs: Any,
+) -> requests.Response:
+    """Plain ``requests.post``/``requests.get`` with the JSON HTTP lifecycle instrumentation (Phase 11).
+
+    Emits:
+      - ``http.request_started``  (INFO,  carries method/model/runtime/engine/url/attempt)
+      - ``http.response_completed`` (INFO, 2xx only, +status_code +duration_sec)
+      - ``http.request_failed``  (WARNING, non-2xx or transport error, +error; +status_code for non-2xx)
+
+    ``method`` is included in the ``http.request_started`` record so the JSON timeline can
+    distinguish GETs from POSTs without parsing the URL. GET requests are health/version/list probes
+    (``is_reachable`` and friends), whose failure is an expected answer rather than a fault, so their
+    ``http.request_failed`` is logged at DEBUG: a down daemon does not print JSON at the default level.
+    """
+    log = logging.getLogger("benchrig")
+    attempt = kwargs.pop("attempt", 1)
+    model = kwargs.pop("model", None)
+    log_failure = log.debug if method == "GET" else log.warning
+    static_fields: dict[str, Any] = {
+        "method": method,
+        "model": model,
+        "runtime": runtime,
+        "engine": engine,
+        "url": url,
+        "attempt": attempt,
+    }
+    log.info(
+        "http.request_started",
+        extra={"event": "http.request_started", **static_fields},
+    )
+    started_at = time.perf_counter()
+    try:
+        if method == "GET":
+            response = requests.get(url, **kwargs)
+        else:
+            response = requests.post(url, **kwargs)
+    except Exception as exc:
+        log_failure(
+            "http.request_failed",
+            extra={"event": "http.request_failed", **static_fields, "error": str(exc)},
+        )
+        raise
+    duration_sec = round(time.perf_counter() - started_at, 3)
+    status = response.status_code
+    if not isinstance(status, int) or 200 <= status < 300:  # real responses always carry an int status
+        log.info(
+            "http.response_completed",
+            extra={
+                "event": "http.response_completed",
+                **static_fields,
+                "status_code": response.status_code,
+                "duration_sec": duration_sec,
+            },
+        )
+    else:
+        log_failure(
+            "http.request_failed",
+            extra={
+                "event": "http.request_failed",
+                **static_fields,
+                "status_code": status,
+                "duration_sec": duration_sec,
+                "error": f"HTTP {status}",
+            },
+        )
+    return response
+
+
+def _logged_get(runtime: str, engine: str, url: str, **kwargs: Any) -> requests.Response:
+    """Thin wrapper around ``_logged_request(..., method='GET')`` for readability at call sites."""
+    return _logged_request(runtime, engine, url, method="GET", **kwargs)
+
+
 def _post_with_503_retry(
     url: str,
     *,
     max_retries: int = _PRISM_503_MAX_RETRIES,
     retry_after_cap_sec: float = _PRISM_RETRY_AFTER_CAP_SEC,
+    runtime: str = "prism",
+    engine: str = "ONNX Runtime GenAI",
     **kwargs: Any,
 ) -> requests.Response:
-    """``requests.post`` that retries on 503 with the server-provided ``Retry-After``.
+    """``requests.post`` (through ``_logged_request``, so each attempt is logged) that retries on 503 with the server-provided ``Retry-After``.
 
     Other 4xx / 5xx responses are NOT retried: the caller gets them as-is and ``raise_for_status()``
     converts them to ``requests.HTTPError`` (or the caller handles the response).
+
+    Phase 11: emits ``retry.attempted`` (INFO) per retry with attempt/delay_sec/reason, and
+    ``retry.exhausted`` (WARNING) when the budget runs out with the JSON reason carried over.
     """
     attempts = 0
     while True:
-        r = requests.post(url, **kwargs)
+        r = _logged_request(runtime, engine, url, attempt=attempts + 1, **kwargs)
         attempts += 1
         if r.status_code != 503:
             return r
-        if attempts > max_retries:
-            # Last attempt was 503; surface the JSON reason and stop.
-            try:
-                body = r.json()
-            except Exception:
-                body = None
-            reason = "unknown"
-            if isinstance(body, dict):
-                err = body.get("error") if isinstance(body.get("error"), dict) else None
-                if err:
-                    reason = f"{err.get('code', 'unknown')}: {err.get('message', '')}".strip(": ")
-            _log.info("prism-local 503 (attempt %d): %s", attempts, reason)
-            raise PrismBusyError(reason=reason, attempts=attempts, last_body=body)
         # Parse Retry-After. Header may be a delay in seconds (integer / float) or an HTTP-date.
         delay = 0.0
         raw = r.headers.get("Retry-After") if hasattr(r, "headers") else None
@@ -79,12 +158,40 @@ def _post_with_503_retry(
                 # uses seconds in practice).
                 delay = 0.0
         delay = min(delay, retry_after_cap_sec)
+
+        # Decode the JSON reason from the response body so the log and the eventual
+        # PrismBusyError surface the same field. If the body is missing or malformed, fall
+        # back to "unknown".
+        try:
+            body = r.json()
+        except Exception:
+            body = None
+        reason = "unknown"
+        if isinstance(body, dict):
+            err = body.get("error") if isinstance(body.get("error"), dict) else None
+            if err:
+                reason = f"{err.get('code', 'unknown')}: {err.get('message', '')}".strip(": ")
+
+        if attempts > max_retries:
+            # Last attempt was 503; surface the JSON reason and stop.
+            _log.warning(
+                "retry.exhausted",
+                extra={
+                    "event": "retry.exhausted",
+                    "attempt": attempts,
+                    "reason": reason,
+                },
+            )
+            raise PrismBusyError(reason=reason, attempts=attempts, last_body=body)
         _log.info(
-            "prism-local 503 (attempt %d/%d); Retry-After=%s → sleeping %.1fs",
-            attempts,
-            max_retries + 1,
-            raw,
-            delay,
+            "retry.attempted",
+            extra={
+                "event": "retry.attempted",
+                "attempt": attempts,
+                "delay_sec": delay,
+                "reason": reason,
+                "retry_after_header": raw,
+            },
         )
         if delay > 0:
             time.sleep(delay)
@@ -122,7 +229,12 @@ class BaseRuntimeClient:
         """Whether Ollama lists the `thinking` capability for `model` (cached; `think` is rejected for other models)."""
         if model not in self._thinking_support:
             try:
-                r = requests.post(f"{self.base_url}/api/show", json={"model": model}, timeout=5)
+                r = self._make_request(
+                    f"{self.base_url}/api/show",
+                    json={"model": model},
+                    timeout=5,
+                    model=model,
+                )
                 capabilities = r.json().get("capabilities", []) if r.status_code == 200 else []
             except Exception:
                 capabilities = []
@@ -181,6 +293,16 @@ class OllamaClient(BaseRuntimeClient):
     prefill_source = "server"
     reloads_on_context_change = True
 
+    def _make_request(self, url: str, **kwargs: Any) -> requests.Response:
+        """Plain ``requests.post`` with the JSON HTTP lifecycle instrumentation. Ollama has
+        its own load queue on the server, so the 503-retry helper used by ``PrismClient`` is
+        not needed here (Phase 11 follow-up to item 11.3 — same hook as ``FoundryClient``)."""
+        return _logged_request(self.name, self.engine_name, url, **kwargs)
+
+    def _make_get(self, url: str, **kwargs: Any) -> requests.Response:
+        """Plain ``requests.get`` with the JSON HTTP lifecycle instrumentation (Phase 11 follow-up)."""
+        return _logged_get(self.name, self.engine_name, url, **kwargs)
+
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
@@ -194,7 +316,7 @@ class OllamaClient(BaseRuntimeClient):
     def is_reachable(self) -> bool:
         """Check if Ollama server is reachable."""
         try:
-            r = requests.get(f"{self.base_url}/api/version", timeout=3)
+            r = self._make_get(f"{self.base_url}/api/version", timeout=3)
             return r.status_code == 200
         except Exception:
             return False
@@ -202,7 +324,7 @@ class OllamaClient(BaseRuntimeClient):
     def get_version(self) -> str:
         """Get Ollama server version."""
         try:
-            r = requests.get(f"{self.base_url}/api/version", timeout=3)
+            r = self._make_get(f"{self.base_url}/api/version", timeout=3)
             if r.status_code == 200:
                 return r.json().get("version", "unknown")
         except Exception:
@@ -212,7 +334,7 @@ class OllamaClient(BaseRuntimeClient):
     def list_installed_models(self) -> list[dict[str, Any]]:
         """Return list of installed models with metadata."""
         try:
-            r = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            r = self._make_get(f"{self.base_url}/api/tags", timeout=5)
             if r.status_code == 200:
                 models = r.json().get("models", [])
                 for m in models:
@@ -225,7 +347,7 @@ class OllamaClient(BaseRuntimeClient):
     def get_running_models(self) -> list[dict[str, Any]]:
         """Return currently loaded models in memory."""
         try:
-            r = requests.get(f"{self.base_url}/api/ps", timeout=5)
+            r = self._make_get(f"{self.base_url}/api/ps", timeout=5)
             if r.status_code == 200:
                 return r.json().get("models", [])
         except Exception:
@@ -235,10 +357,11 @@ class OllamaClient(BaseRuntimeClient):
     def unload_model(self, model_name: str) -> bool:
         """Unload a model from VRAM/RAM immediately by setting keep_alive to 0."""
         try:
-            r = requests.post(
+            r = self._make_request(
                 f"{self.base_url}/api/generate",
                 json={"model": model_name, "keep_alive": 0},
                 timeout=10,
+                model=model_name,
             )
             return r.status_code == 200
         except Exception:
@@ -247,11 +370,12 @@ class OllamaClient(BaseRuntimeClient):
     def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:
         """Pull a model from Ollama library."""
         try:
-            r = requests.post(
+            r = self._make_request(
                 f"{self.base_url}/api/pull",
                 json={"name": model_name, "stream": True},
                 stream=True,
                 timeout=600,
+                model=model_name,
             )
             for line in r.iter_lines():
                 if line:
@@ -309,11 +433,12 @@ class OllamaClient(BaseRuntimeClient):
         try:
             if measure_ttft:
                 # Streaming mode to accurately capture TTFT
-                r = requests.post(
+                r = self._make_request(
                     f"{self.base_url}/api/generate",
                     json=payload,
                     stream=True,
                     timeout=self.timeout_sec,
+                    model=model,
                 )
                 r.raise_for_status()
 
@@ -339,10 +464,11 @@ class OllamaClient(BaseRuntimeClient):
             else:
                 # Non-streaming mode
                 payload["stream"] = False
-                r = requests.post(
+                r = self._make_request(
                     f"{self.base_url}/api/generate",
                     json=payload,
                     timeout=self.timeout_sec,
+                    model=model,
                 )
                 r.raise_for_status()
                 final_metrics = r.json()
@@ -366,7 +492,11 @@ class OllamaClient(BaseRuntimeClient):
 
         # Calculate exact speeds
         prompt_tok_sec = (prompt_eval_count / (prompt_eval_dur_ns / 1e9)) if prompt_eval_dur_ns > 0 else 0.0
-        eval_tok_sec = (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else 0.0
+        eval_dur_sec = eval_dur_ns / 1e9 if eval_dur_ns > 0 else 0.0
+        eval_tok_sec = (eval_count / eval_dur_sec) if eval_dur_sec > 0 else 0.0
+        # Phase 10: Ollama reports its own eval_duration and applies no measurement floor, so a short window
+        # is a measurement, never the floor artifact: the flag is always False here.
+        eval_tok_sec_floored = False
 
         # Time to the first token of any kind, so a thinking model's latency is not its thinking time; the first *answer*
         # token is reported separately. With no token at all (non-streaming) the engine's prompt evaluation time stands in.
@@ -383,6 +513,7 @@ class OllamaClient(BaseRuntimeClient):
             "response": response_text,
             "eval_count": eval_count,
             "eval_tok_per_sec": round(eval_tok_sec, 2),
+            "eval_tok_sec_floored": eval_tok_sec_floored,  # Phase 10: tilde-prefix trigger
             "prompt_eval_count": prompt_eval_count,
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
             "finish_reason": final_metrics.get("done_reason"),
@@ -698,9 +829,12 @@ class FoundryClient(BaseRuntimeClient):
             return False
 
     def _make_request(self, url: str, **kwargs: Any) -> requests.Response:
-        """Single POST hook. Override in subclasses that need transport-level behaviour
-        (e.g. ``PrismClient`` retries on 503 with ``Retry-After``). Default = plain ``requests.post``."""
-        return requests.post(url, **kwargs)
+        """Single POST hook. Default = instrumented plain ``requests.post`` (JSON lifecycle events).
+
+        ``PrismClient`` overrides this to add ``_post_with_503_retry`` semantics on top of the
+        same logging — see plan.md Phase 11 item 11.3 for the contract.
+        """
+        return _logged_request(self.name, self.engine_name, url, **kwargs)
 
     def generate(
         self,
@@ -773,6 +907,7 @@ class FoundryClient(BaseRuntimeClient):
                     json=payload,
                     stream=True,
                     timeout=self.timeout_sec,
+                    model=model,
                     **self._request_kwargs(),
                 )
             else:
@@ -783,6 +918,7 @@ class FoundryClient(BaseRuntimeClient):
                     endpoint,
                     json=p,
                     timeout=self.timeout_sec,
+                    model=model,
                     **self._request_kwargs(),
                 )
 
@@ -874,15 +1010,24 @@ class FoundryClient(BaseRuntimeClient):
                 eval_count = max(1, int(words_eval * 1.3))
 
         # Precision durations
-        total_time_sec = max(0.001, end_wall_time - start_wall_time)
+        total_time_sec_raw = max(0.0, end_wall_time - start_wall_time)
         if first_token_time:
-            ttft_sec = max(0.001, first_token_time - start_wall_time)
-            eval_duration_sec = max(0.001, end_wall_time - first_token_time)
+            ttft_sec_raw = max(0.0, first_token_time - start_wall_time)
+            eval_duration_sec_raw = max(0.0, end_wall_time - first_token_time)
         else:
-            ttft_sec = total_time_sec
-            eval_duration_sec = total_time_sec
+            ttft_sec_raw = total_time_sec_raw
+            eval_duration_sec_raw = total_time_sec_raw
+
+        # Apply the 0.001 s floor only at the reporting boundary; ``*_raw`` is what the
+        # floor-engagement detection compares against the threshold (Phase 10).
+        total_time_sec = max(0.001, total_time_sec_raw)
+        ttft_sec = max(0.001, ttft_sec_raw)
+        eval_duration_sec = max(0.001, eval_duration_sec_raw)
 
         eval_tok_sec = eval_count / eval_duration_sec if eval_duration_sec > 0 else 0.0
+        # Phase 10: a raw eval window under the threshold (including exactly 0.0, where ``max(0.001, ...)``
+        # engages) with any token produced makes ``eval_tok_sec`` a floor artifact, not a measurement.
+        eval_tok_sec_floored = eval_count > 0 and eval_duration_sec_raw < EVAL_DURATION_FLOOR_THRESHOLD_SEC
         prompt_tok_sec = prompt_eval_count / ttft_sec if ttft_sec > 0 else 0.0
         # Same floor as ttft_sec: a mocked/instant response can round both to 0.000, but answer_ttft_sec must
         # never be measurably earlier than ttft_sec (the answer token cannot arrive before the first token).
@@ -898,6 +1043,7 @@ class FoundryClient(BaseRuntimeClient):
             "usage_estimated": not reported_usage,  # token counts below are guesses when the server sent no `usage`
             "eval_count": eval_count,
             "eval_tok_per_sec": round(eval_tok_sec, 2),
+            "eval_tok_sec_floored": eval_tok_sec_floored,  # Phase 10: tilde-prefix trigger
             "prompt_eval_count": prompt_eval_count,
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
             "ttft_sec": round(ttft_sec, 3),
@@ -933,7 +1079,7 @@ class PrismClient(FoundryClient):
         # Prism returns 503 + Retry-After when its load lock is held or the queue is full
         # (prism-local HEAD, prism/server.py:669-671). Retry with the server-provided delay
         # (capped at 60 s), then give up with PrismBusyError. Other 4xx / 5xx are NOT retried.
-        return _post_with_503_retry(url, **kwargs)
+        return _post_with_503_retry(url, runtime=self.name, engine=self.engine_name, **kwargs)
 
     def __init__(
         self,
@@ -976,12 +1122,29 @@ class PrismClient(FoundryClient):
 
         The server holds the engine lock for the call, so if a generation is still in flight this blocks until it
         finishes; the request can take seconds, not just round-trip latency.
+
+        Phase 11: emits `unload.completed` at DEBUG with `ok` (bool) and `error` (str or absent).
         """
+        error: str | None = None
         try:
             r = requests.post(self._get_api_endpoint("unload"), timeout=self.timeout_sec, **self._request_kwargs())
             r.raise_for_status()
-        except Exception:
-            _log.info("prism-local /v1/unload failed for %s (continuing)", model_name, exc_info=True)
+        except Exception as exc:
+            error = str(exc)
+            _log.debug(
+                "unload.completed",
+                extra={
+                    "event": "unload.completed",
+                    "model": model_name,
+                    "ok": False,
+                    "error": error,
+                },
+            )
+            return True
+        _log.debug(
+            "unload.completed",
+            extra={"event": "unload.completed", "model": model_name, "ok": True},
+        )
         return True
 
     def get_version(self) -> str:

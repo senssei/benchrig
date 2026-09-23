@@ -22,6 +22,21 @@ from benchrig.reporting.common import (
 )
 
 
+def format_eval_tok_sec(scorecard: dict[str, Any]) -> str:
+    """Render ``avg_eval_tok_sec`` for the leaderboard row.
+
+    Phase 10: when ``eval_tok_sec_floored`` is set (the 0.001 s measurement floor engaged for
+    one or more underlying scenarios), prefix the value with ``~`` so operators can distinguish
+    a real ``3000 t/s`` measurement from ``3 tokens / 0.001 s = 3000 t/s``. Without the
+    prefix the bare number is misleading (intent.md Constraint 5).
+    """
+    speed = scorecard.get("avg_eval_tok_sec", 0.0)
+    rendered = f"{speed:.1f} t/s"
+    if scorecard.get("eval_tok_sec_floored"):
+        return f"~{rendered}"
+    return rendered
+
+
 def generate_markdown_report(
     scorecards: list[dict[str, Any]],
     raw_results: list[dict[str, Any]],
@@ -143,7 +158,7 @@ def generate_markdown_report(
         model_mem = sc.get("vram_model_mb")
         model_mem_cell = f"{model_mem:.0f} MB" if model_mem is not None else "-"
         lines.append(
-            f"| {medal} | {model_cell} | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {sc['avg_eval_tok_sec']:.1f} t/s | {scorecard_prefill(sc):.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {model_mem_cell} | {vram_status} |"
+            f"| {medal} | {model_cell} | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {format_eval_tok_sec(sc)} | {scorecard_prefill(sc):.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {model_mem_cell} | {vram_status} |"
         )
 
     lines.extend(["", f"*{PREFILL_NOTE}*", "", f"*{MODEL_MEMORY_NOTE}*"])

@@ -1,5 +1,6 @@
 """Benchmark execution engine that orchestrates test suites, hardware monitoring, and scoring."""
 
+import logging
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -9,6 +10,8 @@ from benchrig.core.client import BaseRuntimeClient
 from benchrig.core.hardware import HardwareSampler, get_system_specs
 from benchrig.core.reasoning_parser import contains_expected, evaluate_reasoning_answer
 from benchrig.core.sandbox import extract_python_code, has_complete_code_block, run_code_with_tests
+
+_log = logging.getLogger(__name__)
 
 INTER_TEST_PAUSE_SEC = 0.5
 SANDBOX_TIMEOUT_SEC = 6.0
@@ -300,6 +303,8 @@ class BenchmarkRunner:
         }
         if resp.get("device"):  # execution device reported by the server (e.g. Prism: "cuda" / "cpu")
             record["device"] = resp["device"]
+        if resp.get("eval_tok_sec_floored"):  # the 0.001 s measurement floor set `eval_tok_per_sec` (spec.md Phase 10)
+            record["eval_tok_sec_floored"] = True
         if self.cold_start_sec is not None:
             record["cold_start_sec"] = self.cold_start_sec
         if self.gpu_fit_pct is not None:
@@ -355,6 +360,14 @@ class BenchmarkRunner:
             reason = self._capacity_error(resp)
             if reason:
                 self._capacity_exhausted_reason = reason
+                # Phase 11: capacity.exhausted (WARNING) surfaces the same reason for the JSON log
+                # timeline as the rich UX `_notify` line. The model name is the scorecard key;
+                # `reason` carries the JSON body's `error.code: error.message` summary (e.g.
+                # "insufficient_resources: Insufficient VRAM to load model ...").
+                _log.warning(
+                    "capacity.exhausted",
+                    extra={"event": "capacity.exhausted", "model": model, "reason": reason},
+                )
                 self._notify(label, f"[{model}] stopping — model does not fit in available VRAM: {reason}")
                 break
             time.sleep(INTER_TEST_PAUSE_SEC)
@@ -582,6 +595,9 @@ class BenchmarkRunner:
         avg_eval_tok_sec = (
             sum(r["eval_count"] for r in timed) / generation_sec if generation_sec > 0 else avg_eval_tok_sec_mean
         )
+        # Phase 10: propagate the per-record floor flag to the scorecard so the leaderboard row
+        # can render the tilde prefix and the CSV can carry a boolean column.
+        eval_tok_sec_floored = any(r.get("eval_tok_sec_floored") for r in timed) if timed else False
         # Energy: tokens per joule of GPU power (whole-request average power), where power was sampled.
         powered = [r for r in timed if r.get("tokens_per_joule")]
         joules = sum(r["eval_count"] / r["tokens_per_joule"] for r in powered)
@@ -675,6 +691,7 @@ class BenchmarkRunner:
             "reasoning_accuracy": round(reasoning_accuracy, 1),
             "avg_eval_tok_sec": round(avg_eval_tok_sec, 1),
             "avg_eval_tok_sec_mean": round(avg_eval_tok_sec_mean, 1),
+            "eval_tok_sec_floored": eval_tok_sec_floored,  # Phase 10
             "tokens_per_joule": round(tokens_per_joule, 3) if tokens_per_joule is not None else None,
             "cold_start_sec": round(cold_starts[0], 2) if cold_starts else None,
             "gpu_fit_pct": gpu_fits[0] if gpu_fits else None,

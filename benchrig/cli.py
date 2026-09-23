@@ -8,22 +8,26 @@ by coding quality, reasoning, generation speed, and memory efficiency.
 import argparse
 import glob
 import json
+import logging
 import os
 import re
 import site
 import sys
 import time
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from importlib import resources
 from typing import Any
 
 import yaml
+from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from benchrig import __version__
 from benchrig.core.client import BaseRuntimeClient, create_runtime_client
 from benchrig.core.hardware import get_system_specs
+from benchrig.core.logging import setup_logging
 from benchrig.core.runner import BenchmarkRunner
 from benchrig.core.runtimes import runtime_label, warning_for_provider
 from benchrig.reporting import write_scorecards_chart, write_scorecards_csv
@@ -56,6 +60,28 @@ SUITES: dict[str, tuple[str, str, str]] = {
 }
 
 RUNTIME_CHOICES = ["ollama", "foundry", "onnx-gpu", "prism", "all"]
+
+# Accepted log levels for the `--log-level` flag and `BENCHRIG_LOG_LEVEL` env var. The default
+# level (WARNING) keeps the JSON stderr silent during normal runs; operators set the level to
+# DEBUG or INFO via the flag/env when they need a diagnostic trail.
+_VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+
+def _resolve_log_level(value: str | None) -> str:
+    """Validate and normalise a CLI-supplied log level. Exits 2 on an invalid value.
+
+    A non-empty whitespace-only string is treated as no-value (falls back to WARNING) so a
+    stray `BENCHRIG_LOG_LEVEL=` in the environment does not crash the CLI.
+    """
+    candidate = (value or "").strip().upper() or "WARNING"
+    if candidate not in _VALID_LOG_LEVELS:
+        Console(stderr=True).print(
+            f"[bold red]invalid --log-level:[/] [yellow]{candidate!r}[/]\n"
+            f"  valid values: {', '.join(_VALID_LOG_LEVELS)}"
+        )
+        sys.exit(2)
+    return candidate
+
 
 # Accepted `runtime:model` prefixes, normalized to canonical runtime names.
 RUNTIME_PREFIXES = {
@@ -676,6 +702,8 @@ def run_benchmarks(
     selected_runtime: str,
 ) -> None:
     """Resolve targets, execute the selected suites, then display and persist the results."""
+    log = logging.getLogger("benchrig")
+
     baseline_scorecards: list[dict[str, Any]] = []
     baseline_results: list[dict[str, Any]] = []
     if args.baseline:
@@ -691,109 +719,144 @@ def run_benchmarks(
     else:
         targets = resolve_target_models(args.models, selected_runtime, clients)
 
-    if not targets and not baseline_scorecards:
-        console.print("[bold red]No models to benchmark! Run with --check, --pull-recommended, or specify --models.[/]")
-        onnx_client = clients.get("onnx-gpu")
-        if selected_runtime == "onnx-gpu" and (not onnx_client or not onnx_client.is_reachable()):
+    # ``run.started`` (Phase 11 event) fires after target resolution with `num_models` filled
+    # in. Logged via JSON stderr; the rich UX on stdout (the green "Starting benchmark for" line
+    # below) is unchanged.
+    log.info(
+        "run.started",
+        extra={
+            "event": "run.started",
+            "argv": getattr(args, "argv", []),
+            "runtime": selected_runtime,
+            "num_models": len(targets),
+            "runs": args.runs,
+        },
+    )
+
+    started_monotonic = time.monotonic()
+    total_duration_sec = 0.0
+    scorecards: list[dict[str, Any]] = []
+    try:
+        if not targets and not baseline_scorecards:
             console.print(
-                "[dim]Hint: Direct ONNX GenAI is not active in this Python environment. "
-                'Try: pip install "benchrig[onnx-gpu]"[/]'
+                "[bold red]No models to benchmark! Run with --check, --pull-recommended, or specify --models.[/]"
             )
-        elif selected_runtime == "prism":
-            console.print("[dim]Hint: Start the Prism server first: pip install prism-local && prism serve[/]")
-        else:
-            console.print(
-                "[dim]Hint: If testing MS Foundry, ensure Foundry Local server is running ('foundry service start').[/]"
-            )
-        sys.exit(1)
-
-    specs = get_system_specs(client=clients["ollama"])
-    display_system_banner(specs)
-
-    suites_to_run = list(SUITES) if suite == "all" else [suite]
-    scenarios_dir = resolve_scenarios_dir(args.scenarios_dir)
-    scenarios = {name: load_scenario_file(os.path.join(scenarios_dir, SUITES[name][0])) for name in suites_to_run}
-
-    console.print(f"\n[bold green]🚀 Starting benchmark for models:[/] {', '.join(f'{rt}:{m}' for rt, m in targets)}")
-    console.print(f"[bold cyan]Selected test suites:[/] {', '.join(suites_to_run)}\n")
-    # Warn once per run when a target uses the slow generic-cpu execution provider on a CUDA host (spec.md I4).
-    _warn_slow_provider(targets, specs)
-
-    # One unit per (model x run x scenario); models skipped for capacity leave the bar short of 100%, which is fine —
-    # it still shows real progress instead of nothing until a whole suite finishes (plan.md progress-bar item).
-    total_steps = _total_scenario_steps(scenarios, args.runs, len(targets))
-
-    raw_results: list[dict[str, Any]] = []
-    total_start = time.time()
-    with Progress(
-        TextColumn("[bold blue]{task.fields[label]}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("benchmark", total=total_steps or None, label="Benchmarking")
-        for runtime_name, model in targets:
-            client = clients.get(runtime_name)
-            if not client:
-                console.print(f"[bold red]Unknown runtime: {runtime_name}[/]")
-                continue
-            if not client.is_reachable():
+            onnx_client = clients.get("onnx-gpu")
+            if selected_runtime == "onnx-gpu" and (not onnx_client or not onnx_client.is_reachable()):
                 console.print(
-                    f"[bold yellow]⚠ Skipping {runtime_name}:{model} — {client.display_name} server is not responding.[/]"
+                    "[dim]Hint: Direct ONNX GenAI is not active in this Python environment. "
+                    'Try: pip install "benchrig[onnx-gpu]"[/]'
                 )
-                continue
-            progress.update(task, label=f"{runtime_name}:{model}")
-            raw_results.extend(
-                evaluate_model(
-                    runtime_name,
-                    client,
-                    model,
-                    config,
-                    suites_to_run,
-                    scenarios,
-                    args.runs,
-                    on_progress=lambda _record: progress.advance(task),
+            elif selected_runtime == "prism":
+                console.print("[dim]Hint: Start the Prism server first: pip install prism-local && prism serve[/]")
+            else:
+                console.print(
+                    "[dim]Hint: If testing MS Foundry, ensure Foundry Local server is running ('foundry service start').[/]"
                 )
-            )
-    total_duration = time.time() - total_start
+            sys.exit(1)
 
-    all_results = baseline_results + raw_results
-    scorecards = build_scorecards(config, clients["ollama"], targets, all_results, baseline_scorecards)
-    if not scorecards:
-        console.print("[bold yellow]No benchmark results were recorded.[/]")
-        return
+        specs = get_system_specs(client=clients["ollama"])
+        display_system_banner(specs)
 
-    console.print("\n")
-    display_leaderboard(scorecards, specs=specs)
-    display_token_savings(scorecards)
+        suites_to_run = list(SUITES) if suite == "all" else [suite]
+        scenarios_dir = resolve_scenarios_dir(args.scenarios_dir)
+        scenarios = {name: load_scenario_file(os.path.join(scenarios_dir, SUITES[name][0])) for name in suites_to_run}
 
-    has_ollama = any(is_ollama(sc) for sc in scorecards)
-    has_other = any(not is_ollama(sc) for sc in scorecards)
-    if has_ollama and has_other:
-        show_1to1_comparison(scorecards, all_results, specs, args.output_dir)
+        console.print(
+            f"\n[bold green]🚀 Starting benchmark for models:[/] {', '.join(f'{rt}:{m}' for rt, m in targets)}"
+        )
+        console.print(f"[bold cyan]Selected test suites:[/] {', '.join(suites_to_run)}\n")
+        # Warn once per run when a target uses the slow generic-cpu execution provider on a CUDA host (spec.md I4).
+        _warn_slow_provider(targets, specs)
 
-    md_report_path, raw_json_path = save_outputs(
-        args.output_dir,
-        specs,
-        scorecards,
-        all_results,
-        total_duration,
-        csv_path=args.csv,
-        chart_path=args.chart,
-    )
+        # One unit per (model x run x scenario); models skipped for capacity leave the bar short of 100%, which is fine —
+        # it still shows real progress instead of nothing until a whole suite finishes (plan.md progress-bar item).
+        total_steps = _total_scenario_steps(scenarios, args.runs, len(targets))
 
-    tokens_saved = sum(sc.get("total_tokens_saved", 0) for sc in scorecards)
-    cost_saved = sum(sc.get("est_cost_saved_usd", 0.0) for sc in scorecards)
-    console.print(f"\n[bold green]✔ Benchmark completed in {total_duration:.1f}s![/]")
-    console.print(
-        f"  [cyan]Cloud Tokens Saved:[/] [bold green]{tokens_saved:,}[/] ([bold]~${cost_saved:.4f} USD[/] equivalent)"
-    )
-    console.print(f"  [cyan]Markdown Report:[/] [bold]{md_report_path}[/]")
-    console.print(f"  [cyan]Raw JSON Data:[/] [bold]{raw_json_path}[/]\n")
+        raw_results: list[dict[str, Any]] = []
+        total_start = time.time()
+        with Progress(
+            TextColumn("[bold blue]{task.fields[label]}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("benchmark", total=total_steps or None, label="Benchmarking")
+            for runtime_name, model in targets:
+                client = clients.get(runtime_name)
+                if not client:
+                    console.print(f"[bold red]Unknown runtime: {runtime_name}[/]")
+                    continue
+                if not client.is_reachable():
+                    console.print(
+                        f"[bold yellow]⚠ Skipping {runtime_name}:{model} — {client.display_name} server is not responding.[/]"
+                    )
+                    continue
+                progress.update(task, label=f"{runtime_name}:{model}")
+                raw_results.extend(
+                    evaluate_model(
+                        runtime_name,
+                        client,
+                        model,
+                        config,
+                        suites_to_run,
+                        scenarios,
+                        args.runs,
+                        on_progress=lambda _record: progress.advance(task),
+                    )
+                )
+        total_duration_sec = time.time() - total_start
+        scorecards = build_scorecards(
+            config, clients["ollama"], targets, baseline_results + raw_results, baseline_scorecards
+        )
+        if not scorecards:
+            console.print("[bold yellow]No benchmark results were recorded.[/]")
+            return
+
+        all_results = baseline_results + raw_results
+        console.print("\n")
+        display_leaderboard(scorecards, specs=specs)
+        display_token_savings(scorecards)
+
+        has_ollama = any(is_ollama(sc) for sc in scorecards)
+        has_other = any(not is_ollama(sc) for sc in scorecards)
+        if has_ollama and has_other:
+            show_1to1_comparison(scorecards, all_results, specs, args.output_dir)
+
+        md_report_path, raw_json_path = save_outputs(
+            args.output_dir,
+            specs,
+            scorecards,
+            all_results,
+            total_duration_sec,
+            csv_path=args.csv,
+            chart_path=args.chart,
+        )
+
+        tokens_saved = sum(sc.get("total_tokens_saved", 0) for sc in scorecards)
+        cost_saved = sum(sc.get("est_cost_saved_usd", 0.0) for sc in scorecards)
+        console.print(f"\n[bold green]✔ Benchmark completed in {total_duration_sec:.1f}s![/]")
+        console.print(
+            f"  [cyan]Cloud Tokens Saved:[/] [bold green]{tokens_saved:,}[/] ([bold]~${cost_saved:.4f} USD[/] equivalent)"
+        )
+        console.print(f"  [cyan]Markdown Report:[/] [bold]{md_report_path}[/]")
+        console.print(f"  [cyan]Raw JSON Data:[/] [bold]{raw_json_path}[/]\n")
+    finally:
+        # Phase 11: ``run.completed`` always fires - including on a crash mid-benchmark.
+        models_ok = len({(sc.get("runtime"), sc.get("model")) for sc in scorecards})
+        log.info(
+            "run.completed",
+            extra={
+                "event": "run.completed",
+                "total_duration_sec": round(time.monotonic() - started_monotonic, 3),
+                "models_ok": models_ok,
+                "models_skipped": max(0, len(targets) - models_ok),
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -900,12 +963,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write a PNG chart (one bar per scorecard) to this path; requires the [charts] extra "
         "(embedded in the Markdown report)",
     )
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=list(_VALID_LOG_LEVELS),
+        default=os.environ.get("BENCHRIG_LOG_LEVEL", "WARNING").upper(),
+        help="Structured-log level on stderr (env: BENCHRIG_LOG_LEVEL). Default WARNING.",
+    )
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    # Stable per-invocation run_id; threaded through every JSON log record so an operator
+    # downstream can filter a single run out of a noisy shared log target.
+    args.run_id = uuid.uuid4().hex
+    args.argv = sys.argv[1:]
+
+    # Resolve --log-level and configure the JSON stderr handler. Done before any branch so
+    # `compare` / `check` paths also produce structured logs (only `run_benchmarks` emits
+    # `run.started` / `run.completed`, per spec.md §Phase 11).
+    log_level = _resolve_log_level(args.log_level)
+    setup_logging(level=log_level, run_id=args.run_id)
 
     _bootstrap_cuda_env()
     config = load_config(args.config)
@@ -922,10 +1003,12 @@ def main() -> None:
 
     if args.check:
         run_system_check(clients)
-    elif args.pull_recommended:
+        return
+    if args.pull_recommended:
         pull_recommended_models(clients, config, target_runtime=selected_runtime)
-    else:
-        run_benchmarks(args, config, clients, selected_runtime)
+        return
+
+    run_benchmarks(args, config, clients, selected_runtime)
 
 
 if __name__ == "__main__":

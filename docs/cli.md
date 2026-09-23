@@ -31,6 +31,7 @@ benchrig [OPTIONS]
 | **`--output-dir`** | `string` | `results` | Path to directory where run summaries (`LATEST_SUMMARY.md`) and raw JSON run data are persisted. |
 | **`--csv`** | `path` | `None` | Writes a CSV of the run's scorecards to this path and links it from `LATEST_SUMMARY.md`. |
 | **`--chart`** | `path` | `None` | Writes a PNG chart (one bar per scorecard) to this path and embeds it in `LATEST_SUMMARY.md`. Requires the `[charts]` extra (`pip install -e ".[charts]"`). |
+| **`--log-level`** | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` | `WARNING` (env: `BENCHRIG_LOG_LEVEL`) | Minimum structured-log level on stderr. Default `WARNING` keeps stderr silent during normal runs; `DEBUG` or `INFO` emit one JSON object per diagnostic event (HTTP lifecycle, retries, capacity waits, run lifecycle). Env var `BENCHRIG_LOG_LEVEL` overrides the default; `--log-level` overrides the env. See [§5 Logging](#5-logging). |
 
 ---
 
@@ -106,3 +107,44 @@ Upon completing an evaluation, `benchrig` generates:
 2. **`results/LATEST_SUMMARY.md`**: Markdown report detailing individual scenario assertion passes, TTFT, speed, and cross-engine comparison deltas.
 3. **`results/runs/benchmark_<timestamp>.json`**: Raw machine-readable telemetry and scores for CI/CD or historical trend analysis.
 4. **`--csv`/`--chart` (opt-in)**: a scorecards CSV and/or a PNG bar chart, written where requested and linked/embedded from `LATEST_SUMMARY.md`.
+
+---
+
+## 5. Logging
+
+Structured diagnostic logs are emitted to **stderr** as one JSON object per line. The colored
+terminal UX on **stdout** is unchanged.
+
+Enable a more verbose log via either:
+
+```bash
+benchrig --log-level INFO …                                   # CLI flag (wins over env)
+BENCHRIG_LOG_LEVEL=DEBUG benchrig …                            # env var only
+```
+
+**Stable record shape** (every record carries these; per-event extras add more):
+
+```json
+{"ts": "2026-09-23T18:42:33.123Z", "level": "INFO",
+ "event": "http.request_started", "run_id": "…uuid…",
+ "message": "…", "model": "phi-4-mini", "runtime": "prism", "engine": "ONNX Runtime GenAI",
+ "url": "http://127.0.0.1:5272/v1/chat/completions", "attempt": 1}
+```
+
+| Event | Level | When |
+|---|---|---|
+| `run.started` | INFO | Top of a `benchrig` invocation (`run_benchmarks`) |
+| `run.completed` | INFO | End of a run, including on mid-run crashes (`finally:`) |
+| `http.request_started` / `http.response_completed` / `http.request_failed` | INFO / INFO / WARNING | Every HTTP call from `benchrig.core.client`; `http.response_completed` only for 2xx, `http.request_failed` otherwise (DEBUG for GET health/version probes) |
+| `retry.attempted` / `retry.exhausted` | INFO / WARNING | Prism 503 retry helper |
+| `capacity.exhausted` | WARNING | Persistent `insufficient_resources` short-circuit |
+| `unload.completed` | DEBUG | `PrismClient.unload_model` returning |
+
+**Notes**
+
+- Stdout (`rich.console`) is unchanged; nothing duplicates to stderr by default at WARNING.
+- `run_id` is a single UUID per `benchrig` invocation; use it to filter a run out of a noisy shared log target.
+- Trace context, file output, and OTLP export are **out of scope** for this phase; pipe stderr to `jq` for ad-hoc filtering:
+  ```bash
+  benchrig --log-level INFO 2> >(jq -c 'select(.event=="http.request_failed")') …
+  ```
