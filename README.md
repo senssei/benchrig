@@ -11,6 +11,7 @@ Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/Ollama-REST%20API-black?logo=ollama)](https://ollama.com)
+[![Prism](https://img.shields.io/badge/Prism-REST%20API-blueviolet)](https://github.com/senssei/prism-local)
 [![Hardware](https://img.shields.io/badge/Hardware-Apple%20Silicon%20%7C%20NVIDIA%20CUDA-brightgreen.svg)]()
 [![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
