@@ -131,3 +131,22 @@ To prevent catastrophic out-of-memory crashes or OS-level paging thrashing:
 - The threshold is computed dynamically as **88% of total detected memory**:
   $$\text{Threshold} = \text{Total Memory (MB)} \times 0.88$$
 - When peak usage exceeds this threshold, the runner flags the result with a warning indicator (`⚠️ High VRAM`) in both terminal and Markdown reports, indicating that larger context windows or concurrent processes may risk OOM eviction.
+
+---
+
+## 💾 Host RSS & Fixed-Context Attribution
+
+In addition to GPU VRAM and Apple Silicon UMA, BenchRig samples process-level host Resident Set Size (RSS) to assess the memory impact of runtime clients and daemons (I13):
+
+1. **Host RSS Sampling (`peak_rss_mb`)**:
+   `HardwareSampler` samples host memory RSS at each sampling interval using `/proc/<pid>/status` (VmRSS) on Linux or `ps -o rss=` on Darwin/macOS.
+2. **Process Coverage (`rss_coverage`)**:
+   - `"client_only"`: Host memory sampled for the BenchRig client process (`os.getpid()`) when the server daemon PID is not discovered or resides across container boundaries.
+   - `"client_and_server"`: Host memory sampled as the sum of the client process and the discovered backend daemon process (e.g. Ollama daemon, Foundry daemon, or Prism server).
+3. **Fixed-Context Attribution**:
+   Memory usage is strictly context-dependent. Per-scenario records and scorecards tag RSS measurements with workload parameters:
+   - `prompt_tokens`: Actual tokens evaluated in prompt prefill.
+   - `max_output_tokens`: Maximum token budget allowed for the generation (`num_predict` or `max_tokens`).
+   - `context_tokens`: Configured context window limit (`num_ctx`) or total workload tokens.
+   Host RSS is reported separately from dedicated GPU VRAM or Apple Silicon UMA memory.
+

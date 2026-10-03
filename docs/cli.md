@@ -20,6 +20,7 @@ benchrig [OPTIONS]
 | **`--models`** | `string` | `installed` | Comma-separated list of models to evaluate. Supports runtime prefixes (e.g. `foundry:phi-4-mini` or `ollama:phi3:mini`). Defaults to all installed models. |
 | **`--suite`** | `all` \| `speed` \| `coding` \| `reasoning` \| `context` \| `polish` | `all` | Filters the benchmark to a specific evaluation domain. |
 | **`--runs`** | `integer` | `1` | Number of repetitions of every scenario. Each repetition uses its own seed and (after the first) a prompt marker that defeats Ollama's prompt cache; scorecards then report the min-max of the headline metrics over the repetitions. Use `--runs 3` before quoting differences of a few percent. |
+| **`--warmup-runs`** | `integer` | `1` | Number of warm-up iterations executed per scenario before steady-state measurement. Warm-up runs are stamped with `phase="warmup"` and strictly excluded from benchmark summary averages. |
 | **`--check`** | `flag` | `false` | Runs non-destructive environment diagnostics, accelerator detection, and runtime connectivity verification. |
 | **`--pull-recommended`** | `flag` | `false` | Automatically downloads and pulls recommended benchmark models configured in `config.yaml`. |
 | **`--baseline`** | `path` | `None` | Path to a cached benchmark JSON run providing Ollama metrics so Ollama is never re-run. |

@@ -438,6 +438,42 @@ def get_system_specs(client: Any | None = None) -> dict[str, str]:
     return provider.get_specs()
 
 
+def get_process_rss_mb(pid: int) -> float:
+    """Read Resident Set Size (RSS) in MB for a given process PID (Phase 14, I13)."""
+    # 1. Linux procfs status (VmRSS)
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return float(parts[1]) / 1024.0
+    except Exception:
+        pass
+
+    # 2. getrusage for calling process (zero-subprocess syscall for macOS, BSD, Linux)
+    if pid == os.getpid():
+        try:
+            import resource
+
+            ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            if sys.platform == "darwin":
+                return float(ru) / (1024.0 * 1024.0)
+            return float(ru) / 1024.0
+        except Exception:
+            pass
+
+    # 3. ps command fallback for foreign PID (macOS, BSD)
+    try:
+        out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)], text=True, timeout=1).strip()
+        if out:
+            return float(out) / 1024.0
+    except Exception:
+        pass
+
+    return 0.0
+
+
 class HardwareSampler:
     """Threaded hardware metrics sampler during benchmark execution."""
 
@@ -447,11 +483,14 @@ class HardwareSampler:
         client: Any | None = None,
         provider: BaseHardwareProvider | None = None,
         warning_threshold_setting: Any | None = None,
+        server_pid: int | None = None,
     ):
         self.interval_sec = interval_sec
         self.client = client
         self.provider = provider or get_hardware_provider(client=client)
         self.warning_threshold_setting = warning_threshold_setting
+        self.server_pid = server_pid
+        self.rss_coverage = "client_and_server" if (server_pid and server_pid > 0) else "client_only"
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -461,6 +500,7 @@ class HardwareSampler:
         self.power_samples: list[float] = []
         self.temp_samples: list[float] = []
         self.ram_used_samples: list[float] = []
+        self.rss_samples: list[float] = []
 
         self.start_vram_mb: float = 0.0
         self.vram_total_mb: float = 0.0
@@ -483,6 +523,13 @@ class HardwareSampler:
             if r_used > 0:
                 self.ram_used_samples.append(r_used)
 
+            # Sample host memory RSS (Phase 14, I13)
+            rss = get_process_rss_mb(os.getpid())
+            if self.server_pid:
+                rss += get_process_rss_mb(self.server_pid)
+            if rss > 0:
+                self.rss_samples.append(rss)
+
             time.sleep(self.interval_sec)
 
     def start(self):
@@ -492,6 +539,7 @@ class HardwareSampler:
         self.power_samples.clear()
         self.temp_samples.clear()
         self.ram_used_samples.clear()
+        self.rss_samples.clear()
         self._stop_event.clear()
 
         # baseline
@@ -519,6 +567,11 @@ class HardwareSampler:
         peak_temp = max(self.temp_samples) if self.temp_samples else 0.0
         peak_ram = max(self.ram_used_samples) if self.ram_used_samples else 0.0
 
+        current_rss = get_process_rss_mb(os.getpid())
+        if self.server_pid:
+            current_rss += get_process_rss_mb(self.server_pid)
+        peak_rss = max(self.rss_samples) if self.rss_samples else current_rss
+
         vram_pct_used = (peak_vram / self.vram_total_mb * 100.0) if self.vram_total_mb > 0 else 0.0
 
         warning_threshold = self.provider.get_warning_threshold_mb(
@@ -539,6 +592,8 @@ class HardwareSampler:
             "power_avg_w": round(avg_power, 1),
             "temp_peak_c": round(peak_temp, 1),
             "ram_peak_gb": round(peak_ram, 1),
+            "peak_rss_mb": round(peak_rss, 1),
+            "rss_coverage": self.rss_coverage,
             "vram_warning": is_warning,
             "warning_threshold_mb": round(warning_threshold, 1),
         }

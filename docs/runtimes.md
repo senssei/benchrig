@@ -126,3 +126,18 @@ missing value as *unknown*, not as GPU.
     and reported `cpu`. For this 0.6B model the CPU run was faster (about 57 vs 24 tokens/s), so the choice can change a
     comparison. Start `prism serve` with an explicit `--device cuda` or `--device cpu` when the result depends on it, and read the
     `device` field rather than the model name.
+
+## Execution placement and CPU fallback
+
+BenchRig records execution placement across all backends to prevent silent CPU fallbacks from distorting GPU benchmark comparisons (I11):
+
+- **Requested vs. Observed**: Every scenario and scorecard record distinguishes `requested_device` (default `"gpu"`, `"cuda"`, or `"metal"`) from `observed_device`.
+- **Backend Evidence**:
+  - **Prism**: Reports `telemetry.device` directly (`cuda` or `cpu`).
+  - **Direct ONNX**: Queries ONNX Runtime execution provider registration (`is_cuda_available()`).
+  - **Ollama**: Captures runtime device metrics when available.
+  - **Unknown Placement**: When backend telemetry is unavailable or ambiguous, `observed_device` is recorded as `"unknown"` and never assumed to be GPU.
+- **CPU Fallback Flag**: When a GPU device was requested but execution was observed on CPU, `cpu_fallback=True` is recorded on both per-scenario records and the aggregated scorecard.
+- **Reporting & Export**:
+  - **Markdown & Terminal**: The leaderboard marks CPU fallback models with `⚠️ CPU Fallback` and unknown devices with `❓ Unknown Device` instead of assuming 100% VRAM offload.
+  - **CSV Export**: `SCORECARD_CSV_COLUMNS` appends `requested_device`, `observed_device`, and `cpu_fallback` for spreadsheet analysis.

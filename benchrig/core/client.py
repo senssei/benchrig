@@ -208,6 +208,8 @@ class BaseRuntimeClient:
     prefill_source: str = "client_ttft"
     # True if a request whose `num_ctx` differs from the loaded one makes the server reload the model (Ollama).
     reloads_on_context_change: bool = False
+    # Requested execution device/provider ("gpu", "cuda", "metal", "cpu", or "auto") (spec.md Phase 14, I11)
+    requested_device: str = "gpu"
 
     def __init__(self, base_url: str = "", timeout_sec: int = 180):
         self.base_url = base_url.rstrip("/")
@@ -490,10 +492,15 @@ class OllamaClient(BaseRuntimeClient):
         load_dur_ns = final_metrics.get("load_duration", 0)
         total_dur_ns = final_metrics.get("total_duration", 0)
 
-        # Calculate exact speeds
-        prompt_tok_sec = (prompt_eval_count / (prompt_eval_dur_ns / 1e9)) if prompt_eval_dur_ns > 0 else 0.0
-        eval_dur_sec = eval_dur_ns / 1e9 if eval_dur_ns > 0 else 0.0
-        eval_tok_sec = (eval_count / eval_dur_sec) if eval_dur_sec > 0 else 0.0
+        # Calculate exact speeds and durations (Phase 14, I12)
+        prefill_dur_sec = (prompt_eval_dur_ns / 1e9) if prompt_eval_dur_ns > 0 else None
+        prefill_provenance = "engine" if prefill_dur_sec is not None else "unavailable"
+        prompt_tok_sec = (prompt_eval_count / prefill_dur_sec) if prefill_dur_sec else 0.0
+
+        decode_dur_sec = (
+            eval_dur_ns / 1e9 if eval_dur_ns > 0 else (max(0.0, end_wall_time - (first_token_time or start_wall_time)))
+        )
+        eval_tok_sec = (eval_count / decode_dur_sec) if decode_dur_sec > 0 else 0.0
         # Phase 10: Ollama reports its own eval_duration and applies no measurement floor, so a short window
         # is a measurement, never the floor artifact: the flag is always False here.
         eval_tok_sec_floored = False
@@ -504,6 +511,28 @@ class OllamaClient(BaseRuntimeClient):
             round(first_token_time - start_wall_time, 3) if first_token_time else round(prompt_eval_dur_ns / 1e9, 3)
         )
         answer_ttft_sec = round(first_answer_time - start_wall_time, 3) if first_answer_time else None
+        prefill_eff_tok_sec = round(prompt_eval_count / ttft_sec, 2) if (ttft_sec and ttft_sec > 0) else 0.0
+
+        # Phase 14: Execution placement (I11)
+        requested_device = getattr(self, "requested_device", "gpu")
+        observed_device = final_metrics.get("device") or final_metrics.get("processor")
+        if not observed_device:
+            try:
+                for entry in self.get_running_models():
+                    if entry.get("name") in (model, f"{model}:latest") or entry.get("model") == model:
+                        size_vram = entry.get("size_vram")
+                        if size_vram == 0:
+                            observed_device = "cpu"
+                        elif size_vram and size_vram > 0:
+                            import platform
+
+                            observed_device = "metal" if platform.system() == "Darwin" else "cuda"
+                        break
+            except Exception:
+                pass
+        if not observed_device:
+            observed_device = "unknown"
+        cpu_fallback = bool(requested_device in ("gpu", "cuda", "metal") and str(observed_device).lower() == "cpu")
 
         return {
             "success": True,
@@ -516,6 +545,11 @@ class OllamaClient(BaseRuntimeClient):
             "eval_tok_sec_floored": eval_tok_sec_floored,  # Phase 10: tilde-prefix trigger
             "prompt_eval_count": prompt_eval_count,
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
+            "prefill_duration_sec": round(prefill_dur_sec, 4) if prefill_dur_sec is not None else None,
+            "decode_duration_sec": round(decode_dur_sec, 4),
+            "prefill_provenance": prefill_provenance,
+            "prefill_eff_tok_sec": prefill_eff_tok_sec,
+            "prefill_eff_tok_per_sec": prefill_eff_tok_sec,
             "finish_reason": final_metrics.get("done_reason"),
             "ttft_sec": ttft_sec,
             "answer_ttft_sec": answer_ttft_sec,
@@ -526,6 +560,9 @@ class OllamaClient(BaseRuntimeClient):
                 total_dur_ns / 1e9 if total_dur_ns > 0 else (end_wall_time - start_wall_time),
                 3,
             ),
+            "requested_device": requested_device,
+            "observed_device": observed_device,
+            "cpu_fallback": cpu_fallback,
             "raw_metrics": {
                 "total_duration": total_dur_ns,
                 "load_duration": load_dur_ns,
@@ -1028,10 +1065,31 @@ class FoundryClient(BaseRuntimeClient):
         # Phase 10: a raw eval window under the threshold (including exactly 0.0, where ``max(0.001, ...)``
         # engages) with any token produced makes ``eval_tok_sec`` a floor artifact, not a measurement.
         eval_tok_sec_floored = eval_count > 0 and eval_duration_sec_raw < EVAL_DURATION_FLOOR_THRESHOLD_SEC
-        prompt_tok_sec = prompt_eval_count / ttft_sec if ttft_sec > 0 else 0.0
+
+        # Phase 14: Timing breakdown and provenance (I12)
+        # TTFT is client wall time to first token and is never treated as engine prefill duration.
+        if reported_telemetry and "prompt_eval_duration_sec" in reported_telemetry:
+            prefill_duration_sec = reported_telemetry["prompt_eval_duration_sec"]
+            prefill_provenance = "engine"
+            prompt_tok_sec = prompt_eval_count / prefill_duration_sec if prefill_duration_sec > 0 else 0.0
+        else:
+            prefill_duration_sec = None
+            prefill_provenance = "unavailable"
+            prompt_tok_sec = 0.0
+
+        prefill_eff_tok_sec = round(prompt_eval_count / ttft_sec, 2) if ttft_sec > 0 else 0.0
+        decode_duration_sec = round(eval_duration_sec_raw, 4)
+
         # Same floor as ttft_sec: a mocked/instant response can round both to 0.000, but answer_ttft_sec must
         # never be measurably earlier than ttft_sec (the answer token cannot arrive before the first token).
         answer_ttft_sec = round(max(ttft_sec, first_answer_time - start_wall_time), 3) if first_answer_time else None
+
+        # Phase 14: Execution placement (I11)
+        requested_device = getattr(self, "requested_device", "gpu")
+        observed_device = (reported_telemetry or {}).get("device") or "unknown"
+        cpu_fallback = bool(
+            requested_device in ("gpu", "cuda", "metal") and str(observed_device).lower() in ("cpu", "generic-cpu")
+        )
 
         result = {
             "success": True,
@@ -1046,9 +1104,17 @@ class FoundryClient(BaseRuntimeClient):
             "eval_tok_sec_floored": eval_tok_sec_floored,  # Phase 10: tilde-prefix trigger
             "prompt_eval_count": prompt_eval_count,
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
+            "prefill_duration_sec": prefill_duration_sec,
+            "decode_duration_sec": decode_duration_sec,
+            "prefill_provenance": prefill_provenance,
+            "prefill_eff_tok_sec": prefill_eff_tok_sec,
+            "prefill_eff_tok_per_sec": prefill_eff_tok_sec,
             "ttft_sec": round(ttft_sec, 3),
             "load_time_sec": 0.0,
             "total_time_sec": round(total_time_sec, 3),
+            "requested_device": requested_device,
+            "observed_device": observed_device,
+            "cpu_fallback": cpu_fallback,
             "raw_metrics": {
                 "total_time_sec": total_time_sec,
                 "stream_chunks": total_stream_chunks,
@@ -1178,6 +1244,11 @@ class PrismClient(FoundryClient):
                 device = self._health().get("active_device")
             if device:
                 result["device"] = device
+                result["observed_device"] = device
+                result["cpu_fallback"] = bool(
+                    result.get("requested_device", "gpu") in ("gpu", "cuda", "metal")
+                    and str(device).lower() in ("cpu", "generic-cpu")
+                )
         return result
 
     def pull_model(self, model_name: str, stream_callback: Callable[[dict[str, Any]], None] | None = None) -> bool:

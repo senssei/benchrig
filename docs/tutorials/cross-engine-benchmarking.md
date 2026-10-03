@@ -214,3 +214,18 @@ benchrig --compare results/latest.json
 # Or specify any historical run:
 benchrig --compare results/runs/benchmark_20260918_235227.json
 ```
+
+---
+
+## 🌡 Warm-up and KV Cache Reuse Protocol (`--warmup-runs`)
+
+Benchmarking steady-state inference performance requires separating cold-start latency and JIT pipeline compilation from regular token generation (I14):
+
+- **Warm-up Flag (`--warmup-runs N`, default 1)**: Executes `N` warm-up requests per scenario prior to recording benchmark timings.
+- **Strict Average Isolation**: Warm-up records carry `phase="warmup"` and are strictly excluded from scorecard averages (`avg_eval_tok_sec`, `avg_ttft_sec`, and composite scores).
+- **Cache Mode Protocol (`cache_mode`)**:
+  - `"cold"`: Cold-start request immediately after model loading.
+  - `"warm"`: Steady-state execution with resident weights in accelerator memory, without KV cache reuse.
+  - `"prefix_cached"`: Prompt prefix cache reuse verified through backend telemetry (e.g., Ollama zero-eval-duration prefill `prompt_eval_count == 0` or Prism cache telemetry).
+  - `"unverified"`: Repeated identical workload where prefix cache reuse is unsupported or unconfirmed by the runtime.
+

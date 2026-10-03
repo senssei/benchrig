@@ -40,6 +40,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
     name: str = "onnx-gpu"
     display_name: str = "ONNX GenAI (Direct CUDA)"
     engine_name: str = "ONNX Runtime GenAI"
+    requested_device: str = "cuda"
 
     def __init__(
         self,
@@ -242,6 +243,10 @@ class OnnxGenAiClient(BaseRuntimeClient):
         measure_ttft: bool = True,
     ) -> dict[str, Any]:
         """Execute text generation using onnxruntime_genai with precision telemetry."""
+        cuda_avail = self.is_cuda_available()
+        observed_device = "CUDA (GPU)" if cuda_avail else "CPU"
+        cpu_fallback = not cuda_avail
+
         if not OG_AVAILABLE or og is None:
             return {
                 "success": False,
@@ -254,6 +259,9 @@ class OnnxGenAiClient(BaseRuntimeClient):
                 "prompt_tok_per_sec": 0.0,
                 "ttft_sec": 0.0,
                 "total_time_sec": 0.0,
+                "requested_device": self.requested_device,
+                "observed_device": observed_device,
+                "cpu_fallback": cpu_fallback,
             }
 
         start_wall_time = time.perf_counter()
@@ -273,6 +281,9 @@ class OnnxGenAiClient(BaseRuntimeClient):
                     "prompt_tok_per_sec": 0.0,
                     "ttft_sec": 0.0,
                     "total_time_sec": round(time.perf_counter() - start_wall_time, 3),
+                    "requested_device": self.requested_device,
+                    "observed_device": observed_device,
+                    "cpu_fallback": cpu_fallback,
                 }
 
         opts = options or {}
@@ -333,7 +344,11 @@ class OnnxGenAiClient(BaseRuntimeClient):
                 if (decode_dur_sec > 0 and eval_count > 1)
                 else (eval_count / total_time_sec if total_time_sec > 0 else 0.0)
             )
-            prompt_tok_sec = prompt_eval_count / ttft_sec if ttft_sec > 0 else 0.0
+            # Phase 14: Timing breakdown and provenance (I12)
+            prefill_duration_sec = None
+            prefill_provenance = "unavailable"
+            prefill_eff_tok_sec = round(prompt_eval_count / ttft_sec, 2) if ttft_sec > 0 else 0.0
+            prompt_tok_sec = 0.0
 
             return {
                 "success": True,
@@ -345,9 +360,17 @@ class OnnxGenAiClient(BaseRuntimeClient):
                 "eval_tok_per_sec": round(eval_tok_sec, 2),
                 "prompt_eval_count": prompt_eval_count,
                 "prompt_tok_per_sec": round(prompt_tok_sec, 2),
+                "prefill_duration_sec": prefill_duration_sec,
+                "decode_duration_sec": round(decode_dur_sec, 4),
+                "prefill_provenance": prefill_provenance,
+                "prefill_eff_tok_sec": prefill_eff_tok_sec,
+                "prefill_eff_tok_per_sec": prefill_eff_tok_sec,
                 "ttft_sec": round(ttft_sec, 3),
                 "load_time_sec": 0.0,
                 "total_time_sec": round(total_time_sec, 3),
+                "requested_device": self.requested_device,
+                "observed_device": observed_device,
+                "cpu_fallback": cpu_fallback,
                 "raw_metrics": {
                     "total_time_sec": total_time_sec,
                     "prompt_eval_count": prompt_eval_count,
@@ -367,4 +390,7 @@ class OnnxGenAiClient(BaseRuntimeClient):
                 "prompt_tok_per_sec": 0.0,
                 "ttft_sec": 0.0,
                 "total_time_sec": round(time.perf_counter() - start_wall_time, 3),
+                "requested_device": self.requested_device,
+                "observed_device": observed_device,
+                "cpu_fallback": cpu_fallback,
             }

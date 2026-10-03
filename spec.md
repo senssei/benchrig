@@ -32,6 +32,11 @@ Tests and reviews cite these by number. Changing one needs operator approval.
 | I8 | `FoundryClient.generate()` forwards `top_k`, `repetition_penalty` and `stop` from `options` verbatim into the `/v1/chat/completions` payload when present, and omits them when absent; a malformed value (from these or the pre-existing `temperature`/`max_tokens`/`top_p`/`seed` options) fails that one scenario via `_failure_result`, never the whole run. |
 | I9 | `FoundryClient.generate()` reads `reasoning_content` from the response (streaming delta or non-streaming message) and sets `thinking_chars` on the result when non-empty; `ttft_sec` reflects the first token of either kind and `answer_ttft_sec` the first content token (omitted when no content token arrives). Behavior for a response with no `reasoning_content` is unchanged. |
 | I10 | In the coding benchmark sandbox, candidate stdout and stderr never determine the test verdict or expected test count. Expected test count is strictly `len(test_assertions)`. Test execution status is communicated out-of-band (via a dedicated temporary result file verified with a secret token), and any premature process termination or forged markers fail against the caller's assertions. |
+| I11 | Scorecards and records distinguish `requested_device` from `observed_device` across Ollama, Foundry Local, direct ONNX Runtime GenAI and Prism; when observed placement is unavailable, it is recorded as `"unknown"`, and a GPU request running on CPU is flagged with `cpu_fallback=True`. |
+| I12 | TTFT, prefill duration, and decode duration are reported as separate metrics with explicit units and provenance tags (`prefill_provenance`: `"engine"` \| `"unavailable"`); TTFT is never labelled as engine prefill duration. |
+| I13 | Peak host RSS (in MB) is sampled and reported alongside platform GPU/UMA memory, explicitly qualified by process coverage (`rss_coverage`: `"client_only"` \| `"client_and_server"`) and fixed workload context parameters (`context_tokens`, `prompt_tokens`, `max_output_tokens`). |
+| I14 | Warm-up runs (`--warmup-runs N`, default 1) are executed before steady-state measurement and strictly excluded from benchmark summary averages; repeated identical runs record `cache_mode` (`"cold"`, `"warm"`, `"prefix_cached"`, `"unverified"`), and prefix cache hits require backend verification. |
+| I15 | Coding suite metrics report both task-level pass counts (`coding_tasks_passed / coding_task_count`) and assertion-level pass counts (`coding_assertions_passed / coding_assertion_count`) separately, with per-task outcomes preserved in run records. |
 
 ## 3. Failure modes (current behavior)
 
@@ -356,14 +361,77 @@ Scope authorized by the operator's request to unify SDLC across projects 01–08
 
 Codex reads project AGENTS.md and routes through `.agents/skills/sdlc`. A natural-language request is sufficient; `$sdlc` is an explicit entry. Gate checks receive the selected comparison base through `SDLC_BASE`. Full `scripts/sdlc_check.py` is also configured in `.github/workflows/sdlc.yml`; existing CI jobs remain. A sandbox-blocked check remains unverified. Operator authorization persists within the requested scope.
 
-## Planned behavior: interpretable benchmark comparisons
+## Planned behavior: Phase 14 — Interpretable benchmark comparisons
 
-Scope added at the operator's request on 2026-10-03; implementation is not authorized by this scope-only request.
+Scope added at the operator's request on 2026-10-03; implementation begins once the operator approves this plan.
 
-- Report the observed execution provider/device and any CPU fallback prominently alongside performance results. Distinguish requested from observed placement; unavailable evidence is `unknown`, not assumed GPU execution. Cover Ollama, Foundry Local, direct ONNX Runtime GenAI and Prism on supported platforms.
-- Separate TTFT, prefill duration/throughput and decode duration/throughput, with units and measurement provenance. Estimated or unavailable measurements must be labelled; TTFT must not be treated as prefill duration.
-- Add peak RSS at a fixed, recorded context/workload. Define sampled processes, sampling method, prompt token count, context limit and output budget before implementation. Report GPU/UMA memory separately with platform limitations; RSS alone is not total GPU memory usage.
-- Compare cold and warm model/runtime runs separately from KV-prefix reuse. Repeat identical workloads after warm-up and, where supported, after populating a reusable KV prefix. Record cache mode, reused prefix length and warm-up protocol; unsupported or unverifiable reuse must not be labelled a warm-cache measurement.
-- Surface executable coding-test pass counts and denominators, task-level success and test-level success separately, with identical tasks and verdict rules across comparisons. The motivating `100% vs 17.6%` example is not a verified BenchRig result. Preserve failed/truncated outcomes and link to per-task evidence; aggregate scores remain supplementary.
+### 14.1 Execution placement and CPU fallback (I11)
+- **Requested vs Observed Placement:**
+  - `requested_device`: Target device requested by caller (`"cuda"`, `"generic-cpu"`, `"metal"`, `"cpu"`, or `"auto"`).
+  - `observed_device`: Actual execution hardware reported by backend telemetry or confirmed runtime inspect:
+    - Prism: `telemetry.device` from model metadata / response stream (`"CUDA (GPU)"`, `"CPU"`).
+    - Ollama: `/api/ps` processor info (`"GPU"`, `"CPU"`), or `model_info` execution providers.
+    - ONNX Direct: query `og.is_cuda_available()` and provider registration.
+    - When backend provides no device evidence: `observed_device = "unknown"`.
+  - `cpu_fallback`: Boolean flag set to `True` when `requested_device` indicates GPU (`"cuda"`, `"metal"`, `"gpu"`) but `observed_device` is `"CPU"`.
+- **Reporting:**
+  - Leaderboard table in Markdown renders `Device / Provider` column showing observed device, and flags fallback visibly as `⚠️ CPU Fallback`.
+  - CSV export appends `requested_device`, `observed_device`, `cpu_fallback` columns.
+  - Updates `docs/runtimes.md`.
 
-Normative documentation to update during implementation: `docs/benchmark-suites.md`, `docs/hardware-telemetry.md`, `docs/runtimes.md` and `docs/tutorials/cross-engine-benchmarking.md`. Coding comparisons depend on resolving the recorded verdict-integrity finding before claiming trustworthy results.
+### 14.2 Timing breakdown and provenance (I12)
+- **Independent Metrics:**
+  - `ttft_sec`: Client wall time (seconds) from request dispatch until receipt of the first token chunk.
+  - `prefill_duration_sec`: Duration spent purely evaluating the prompt tokens before token generation begins.
+    - Ollama: `prompt_eval_duration` (converted from ns to seconds). `prefill_provenance = "engine"`.
+    - Foundry / Prism / ONNX: If backend reports no separate prompt evaluation time, `prefill_duration_sec = None`, `prefill_provenance = "unavailable"`.
+    - `prompt_tok_per_sec`: If `prefill_duration_sec` is available, `prompt_eval_count / prefill_duration_sec`. Otherwise, client effective prefill speed is reported separately as `prefill_eff_tok_sec = prompt_eval_count / ttft_sec` with `prefill_provenance = "client_ttft"`. TTFT is never labelled or stored as engine prefill duration.
+  - `decode_duration_sec`: Duration spent in token generation phase (`end_wall_time - first_token_time`).
+  - `eval_tok_per_sec`: Token generation speed. For generator loop clients (`OnnxGenAiClient`), `(eval_count - 1) / decode_duration_sec` when `eval_count > 1` and `decode_duration_sec > 0`, else `eval_count / total_time_sec`. For HTTP streaming clients (`FoundryClient`, `PrismClient`), `eval_count / eval_duration_sec` (preserving the Phase 10 floor measurement contract and regression test suite).
+- **Reporting:**
+  - Markdown report displays `TTFT (s)`, `Prefill (t/s, eff.)`, and `Decode (t/s)` distinctly.
+  - CSV export includes `ttft_sec`, `prefill_duration_sec`, `decode_duration_sec`, `prefill_provenance`.
+  - Updates `tests/test_measurement_methodology.py`, `tests/test_report_markdown.py`, `tests/test_report_csv.py`.
+
+### 14.3 Peak RSS at fixed context (I13)
+- **Process Memory Measurement:**
+  - Measure host memory Resident Set Size (RSS) in MB using `HardwareSampler` sampling at `interval_sec`.
+  - Track `peak_rss_mb` across the run.
+  - `rss_coverage`:
+    - `"client_only"`: Host memory sampled for the BenchRig process (`os.getpid()`) when runtime daemon PID is not discovered or resides across container boundaries.
+    - `"client_and_server"`: Host memory sampled as the sum of client process and discovered backend server daemon process (e.g. Ollama daemon, Foundry daemon, Prism process).
+- **Fixed Context Attribution:**
+  - Memory measurements in run records are tagged with workload parameters: `context_tokens`, `prompt_tokens`, `max_output_tokens`.
+  - Disclose that host RSS is separate from GPU VRAM / Apple Silicon UMA memory.
+- **Reporting:**
+  - Scorecards and JSON results include `peak_rss_mb`, `rss_coverage`, `context_tokens`.
+  - Updates `benchrig/core/hardware.py`, `benchrig/core/runner.py`, `tests/test_hardware.py`, `docs/hardware-telemetry.md`.
+
+### 14.4 Warm-up and KV reuse protocol (I14)
+- **Execution Protocols:**
+  - `cold_run`: First request after model loading. Measures cold-start latency (model loading, pipeline preparation).
+  - `warm_run`: Steady-state evaluation with model loaded into memory, without assuming KV prefix cache reuse.
+  - `prefix_cached`: Workload reusing a fixed prompt prefix on backends that support prefix caching.
+- **Warm-up Flag & Aggregation:**
+  - `--warmup-runs N` (default 1): Runs `N` warm-up iterations per scenario before benchmark measurement.
+  - Warm-up runs are recorded with `phase="warmup"` and strictly excluded from benchmark summary averages (`avg_eval_tok_sec`, `avg_ttft_sec`, `composite_score`).
+- **Cache Reuse Verification:**
+  - `cache_mode`: Stamped as `"cold"`, `"warm"`, `"prefix_cached"`, or `"unverified"`.
+  - A run is only labelled `"prefix_cached"` when verified via backend telemetry (e.g. Ollama `prompt_eval_count == 0` or Prism prefix cache hit header/telemetry). Unsupported or unconfirmed reuse is recorded as `"unverified"`.
+- **Reporting:**
+  - Updates `benchrig/cli.py`, `benchrig/core/runner.py`, `tests/test_measurement_methodology.py`, `docs/tutorials/cross-engine-benchmarking.md`.
+
+### 14.5 Executable-test evidence and coding metrics (I15)
+- **Disaggregated Coding Metrics:**
+  - `coding_task_count`: Total coding scenarios evaluated.
+  - `coding_tasks_passed`: Number of scenarios where 100% of unit test assertions passed.
+  - `coding_task_pass_rate`: Percentage of fully solved tasks (`(coding_tasks_passed / coding_task_count) * 100`).
+  - `coding_assertion_count`: Total unit test assertions executed across all scenarios.
+  - `coding_assertions_passed`: Total unit test assertions that passed.
+  - `coding_pass_rate`: Percentage of passed assertions (`(coding_assertions_passed / coding_assertion_count) * 100`, preserving backwards compatibility).
+- **Per-Task Evidence:**
+  - Every coding result record retains `task_id`, `passed` (task-level boolean), `passed_tests`, `total_tests`, `pass_ratio`, and failure diagnostics.
+- **Reporting:**
+  - Markdown report shows `Tasks Passed: X/Y (Z%)` alongside `Assertions: A/B (C%)`.
+  - CSV export includes `coding_task_pass_rate`, `coding_tasks_passed`, `coding_task_count`, `coding_assertions_passed`, `coding_assertion_count`.
+  - Updates `benchrig/core/runner.py`, `benchrig/reporting/`, `tests/test_report_markdown.py`, `tests/test_report_csv.py`, `docs/benchmark-suites.md`, `CHANGELOG.md`.

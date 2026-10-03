@@ -200,13 +200,13 @@ class MarkdownFloorSpeedAnnotationTests(unittest.TestCase):
 
 class CsvEvalTokSecFlooredColumnTests(unittest.TestCase):
     def test_csv_columns_includes_eval_tok_sec_floored(self):
-        """`SCORECARD_CSV_COLUMNS` ends with the new boolean column."""
+        """`SCORECARD_CSV_COLUMNS` contains the boolean column."""
         from benchrig.reporting.csv_export import SCORECARD_CSV_COLUMNS
 
-        self.assertEqual(SCORECARD_CSV_COLUMNS[-1], "eval_tok_sec_floored")
+        self.assertIn("eval_tok_sec_floored", SCORECARD_CSV_COLUMNS)
 
     def test_csv_round_trips_floored_true(self):
-        """`write_scorecards_csv` writes `True` for the new column on a floored scorecard."""
+        """`write_scorecards_csv` writes `True` for the column on a floored scorecard."""
         from benchrig.reporting.csv_export import write_scorecards_csv
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,11 +217,11 @@ class CsvEvalTokSecFlooredColumnTests(unittest.TestCase):
             )
             with open(csv_path) as fh:
                 rows = list(csv.reader(fh))
-            self.assertEqual(rows[0][-1], "eval_tok_sec_floored")
-            self.assertEqual(rows[1][-1], "True")
+            idx = rows[0].index("eval_tok_sec_floored")
+            self.assertEqual(rows[1][idx], "True")
 
     def test_csv_round_trips_floored_false(self):
-        """`write_scorecards_csv` writes `False` for the new column on a non-floored scorecard."""
+        """`write_scorecards_csv` writes `False` for the column on a non-floored scorecard."""
         from benchrig.reporting.csv_export import write_scorecards_csv
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,7 +232,8 @@ class CsvEvalTokSecFlooredColumnTests(unittest.TestCase):
             )
             with open(csv_path) as fh:
                 rows = list(csv.reader(fh))
-            self.assertEqual(rows[1][-1], "False")
+            idx = rows[0].index("eval_tok_sec_floored")
+            self.assertEqual(rows[1][idx], "False")
 
 
 if __name__ == "__main__":

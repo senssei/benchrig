@@ -96,9 +96,23 @@ def generate_markdown_report(
             f"- 🥇 **Overall Leader (Composite Score)**: **`{best_overall['model']}`** [{best_overall.get('runtime', 'ollama')}] (Score: **{best_overall['composite_score']:.1f}/100**)"
         )
     if best_coding:
-        lines.append(
-            f"- 💻 **Top Coding Performer (Unit Tests Pass Rate)**: **`{best_coding['model']}`** [{best_coding.get('runtime', 'ollama')}] (Passed Tests: **{best_coding['coding_pass_rate']:.1f}%**)"
-        )
+        tasks_p = best_coding.get("coding_tasks_passed")
+        tasks_t = best_coding.get("coding_task_count")
+        tasks_rate = best_coding.get("coding_task_pass_rate")
+        asserts_p = best_coding.get("coding_assertions_passed")
+        asserts_t = best_coding.get("coding_assertion_count")
+        if tasks_p is not None and tasks_t is not None and tasks_t > 0:
+            if asserts_p is not None and asserts_t is not None and asserts_t > 0:
+                assert_str = f"Assertions: **{asserts_p}/{asserts_t} ({best_coding['coding_pass_rate']:.1f}%)**"
+            else:
+                assert_str = f"Assertions: **{best_coding['coding_pass_rate']:.1f}%**"
+            lines.append(
+                f"- 💻 **Top Coding Performer**: **`{best_coding['model']}`** [{best_coding.get('runtime', 'ollama')}] (Tasks Passed: **{tasks_p}/{tasks_t} ({tasks_rate:.1f}%)**, {assert_str})"
+            )
+        else:
+            lines.append(
+                f"- 💻 **Top Coding Performer (Unit Tests Pass Rate)**: **`{best_coding['model']}`** [{best_coding.get('runtime', 'ollama')}] (Passed Tests: **{best_coding['coding_pass_rate']:.1f}%**)"
+            )
     if best_reasoning:
         lines.append(
             f"- 🧠 **Top Reasoning Performer (Accuracy)**: **`{best_reasoning['model']}`** [{best_reasoning.get('runtime', 'ollama')}] (Accuracy: **{best_reasoning['reasoning_accuracy']:.1f}%**)"
@@ -140,16 +154,29 @@ def generate_markdown_report(
         [
             "## 📈 Leaderboard",
             "",
-            f"| Rank | Model | Runtime | Engine | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill, eff. (t/s) | Avg TTFT | Peak {mem_kind} | Model {mem_kind} (Δ) | {mem_kind} Status |",
+            f"| Rank | Model | Runtime | Engine | Composite Score | Coding (Pass %) | Reasoning (%) | Decode Speed (t/s) | Prefill, eff. (t/s) | Avg TTFT | Peak {mem_kind} | Model {mem_kind} (Δ) | Device / Placement |",
             "|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
         ]
     )
 
     for idx, sc in enumerate(ranked, start=1):
         medal = "🥇 " if idx == 1 else ("🥈 " if idx == 2 else ("🥉 " if idx == 3 else f"{idx}."))
-        vram_status = (
-            "⚠️ Near Memory Limit" if sc.get("vram_warning") else ("✅ 100% Metal" if is_mac else "✅ 100% VRAM")
-        )
+        obs_dev = sc.get("observed_device", "unknown")
+        if sc.get("cpu_fallback"):
+            device_status = "⚠️ CPU Fallback"
+        elif obs_dev == "unknown":
+            device_status = "❓ Unknown Device"
+        elif is_mac:
+            device_status = "✅ 100% Metal"
+        elif "vram" in obs_dev.lower() or "cuda" in obs_dev.lower():
+            device_status = f"✅ {obs_dev}"
+        else:
+            device_status = f"✅ {obs_dev}"
+
+        if sc.get("vram_warning"):
+            vram_status = f"⚠️ Near Memory Limit ({device_status})"
+        else:
+            vram_status = device_status
         rt = sc.get("runtime", "ollama")
         rt_display = runtime_label(rt)
         engine_display = sc.get("engine", "llama.cpp" if rt_display == "Ollama" else "ONNX Runtime")
@@ -252,8 +279,10 @@ def generate_markdown_report(
             ]
         )
 
+    measured_results = [r for r in raw_results if r.get("phase") != "warmup"]
+
     # Detailed coding breakdown
-    coding_tests = [r for r in raw_results if r.get("suite") == "coding"]
+    coding_tests = [r for r in measured_results if r.get("suite") == "coding"]
     if coding_tests:
         lines.extend(
             [
@@ -277,7 +306,7 @@ def generate_markdown_report(
             )
 
     # Detailed reasoning breakdown
-    reasoning_tests = [r for r in raw_results if r.get("suite") == "reasoning"]
+    reasoning_tests = [r for r in measured_results if r.get("suite") == "reasoning"]
     if reasoning_tests:
         lines.extend(
             [
@@ -301,7 +330,7 @@ def generate_markdown_report(
             )
 
     # Detailed Polish NLP breakdown
-    polish_tests = [r for r in raw_results if r.get("suite") == "polish"]
+    polish_tests = [r for r in measured_results if r.get("suite") == "polish"]
     if polish_tests:
         lines.extend(
             [
@@ -324,7 +353,7 @@ def generate_markdown_report(
             )
 
     # Context scaling breakdown
-    context_tests = [r for r in raw_results if r.get("suite") == "context"]
+    context_tests = [r for r in measured_results if r.get("suite") == "context"]
     if context_tests:
         lines.extend(
             [

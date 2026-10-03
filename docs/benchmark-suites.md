@@ -72,6 +72,19 @@ tokens (of a 6144 budget), coding 98.0% [94.1-100.0] and, on the biggest scenari
 | **Valid Balanced Brackets** | Stack data structure, pair mapping, empty and malformed string handling | 6 |
 | **LRU Cache Implementation** | Doubly-linked hash map / `OrderedDict`, O(1) get/put operations | 2 |
 
+### Disaggregated Task vs. Assertion Metrics
+
+To avoid obscuring partial successes or multi-assertion scenarios where a model fails only edge cases, BenchRig disaggregates coding metrics into two distinct levels:
+
+- **Task-Level Success (`coding_tasks_passed / coding_task_count`, `coding_task_pass_rate`)**:
+  A coding scenario is marked passed only when **100% of its unit test assertions pass**. The task pass rate reflects the percentage of programming problems fully solved without errors.
+- **Assertion-Level Success (`coding_assertions_passed / coding_assertion_count`, `coding_pass_rate`)**:
+  Counts individual unit test assertions passed across all scenarios. `coding_pass_rate` preserves backward compatibility and contributes to the composite score.
+- **Per-Task Run Evidence**:
+  Each result record retains `task_id`, `passed` (task boolean), `passed_tests`, `total_tests`, `pass_ratio`, and any `sandbox_error` diagnostics.
+- **Reporting & Exports**:
+  The Markdown report displays task pass counts (`Tasks Passed: X/Y (Z%)`) alongside assertion rates (`Assertions: A/B (C%)`), and the CSV export includes columns for both task and assertion counts and rates (`coding_task_pass_rate`, `coding_tasks_passed`, `coding_task_count`, `coding_assertions_passed`, `coding_assertion_count`).
+
 ---
 
 ## 3. 🧠 Reasoning & Thought Chain Suite (`reasoning`)

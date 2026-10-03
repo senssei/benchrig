@@ -571,6 +571,7 @@ def evaluate_model(
     scenarios: dict[str, list[dict[str, Any]]],
     runs: int,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    warmup_runs: int = 0,
 ) -> list[dict[str, Any]]:
     """Load, warm up, benchmark, and unload one model; return its raw result records.
 
@@ -582,11 +583,13 @@ def evaluate_model(
     )
 
     def on_result(record: dict[str, Any]) -> None:
+        if record.get("phase") == "warmup":
+            return
         display_scenario_result(record)
         if on_progress:
             on_progress(record)
 
-    runner = BenchmarkRunner(client=client, config=config, on_result=on_result)
+    runner = BenchmarkRunner(client=client, config=config, on_result=on_result, warmup_runs=warmup_runs)
     # Before the model is loaded, so reports can separate the model's memory from whatever else uses the GPU.
     baseline_mb = runner.measure_vram_baseline()
     if baseline_mb > 0:
@@ -807,6 +810,7 @@ def run_benchmarks(
                         scenarios,
                         args.runs,
                         on_progress=lambda _record: progress.advance(task),
+                        warmup_runs=args.warmup_runs,
                     )
                 )
         total_duration_sec = time.time() - total_start
@@ -936,6 +940,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Test suite selection (all, coding, reasoning, speed, context, polish)",
     )
     parser.add_argument("--runs", type=int, default=1, help="Number of repetitions per test (default: 1)")
+    parser.add_argument(
+        "--warmup-runs",
+        type=int,
+        default=1,
+        help="Number of warm-up iterations per scenario before measurement (default: 1)",
+    )
     parser.add_argument("--output-dir", default="results", help="Directory to save benchmark results")
     parser.add_argument(
         "--compare",

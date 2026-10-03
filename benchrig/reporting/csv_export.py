@@ -25,6 +25,20 @@ SCORECARD_CSV_COLUMNS: tuple[str, ...] = (
     "peak_vram_mb",
     "total_runs",
     "eval_tok_sec_floored",
+    "requested_device",
+    "observed_device",
+    "cpu_fallback",
+    "prefill_duration_sec",
+    "decode_duration_sec",
+    "prefill_provenance",
+    "peak_rss_mb",
+    "rss_coverage",
+    "context_tokens",
+    "coding_task_pass_rate",
+    "coding_tasks_passed",
+    "coding_task_count",
+    "coding_assertions_passed",
+    "coding_assertion_count",
 )
 
 

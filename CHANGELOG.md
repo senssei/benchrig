@@ -20,6 +20,41 @@ versions may include breaking changes).
   gate's checks (`tests`, `lint`, `changelog`) and `sdlc.toml` are unchanged.
 
 ### Added
+- **Executable-test evidence and disaggregated coding metrics (Phase 14, item 14.5).** Disaggregated
+  coding suite performance into task-level success (`coding_tasks_passed / coding_task_count`,
+  `coding_task_pass_rate`) and assertion-level success (`coding_assertions_passed / coding_assertion_count`,
+  `coding_pass_rate`). A task is only marked passed if 100% of unit test assertions pass. Run records
+  retain per-task evidence (`task_id`, `passed`, `passed_tests`, `total_tests`, `pass_ratio`). Markdown
+  reports display both tasks passed and assertion pass rates, and CSV exports include all disaggregated
+  columns (`coding_task_pass_rate`, `coding_tasks_passed`, `coding_task_count`, `coding_assertions_passed`,
+  `coding_assertion_count`). Documented in `docs/benchmark-suites.md`.
+- **Warm-up iterations and KV prefix cache reuse protocol (Phase 14, item 14.4).** Added `--warmup-runs N`
+  (default 1) CLI flag to run warm-up iterations per scenario before measurement. Warm-up runs are
+  tagged with `phase="warmup"` and strictly excluded from benchmark summary averages (`avg_eval_tok_sec`,
+  `avg_ttft_sec`, `composite_score`). Stamped records with `cache_mode` (`"cold"`, `"warm"`, `"prefix_cached"`,
+  or `"unverified"`), requiring verified backend telemetry for prefix cache hit attribution. Documented
+  warm-up protocol in `docs/tutorials/cross-engine-benchmarking.md`.
+- **Peak host RSS sampling and fixed-context attribution (Phase 14, item 14.3).** Sample host
+  Resident Set Size (RSS in MB) during inference via `HardwareSampler` with explicit process coverage
+  qualification (`rss_coverage`: `"client_only"` vs `"client_and_server"`). Run records and scorecards
+  tag memory measurements with fixed-context workload parameters (`context_tokens`, `prompt_tokens`,
+  `max_output_tokens`). Appended `peak_rss_mb`, `rss_coverage`, and `context_tokens` to `SCORECARD_CSV_COLUMNS`.
+  Documented host RSS mechanics in `docs/hardware-telemetry.md`.
+- **Timing breakdown and provenance reporting (Phase 14, item 14.2).** Report TTFT, prefill duration,
+  and decode duration as separate metrics with explicit provenance tags (`prefill_provenance`:
+  `"engine"` | `"client_ttft"` | `"unavailable"`). TTFT is client wall time to first token and is
+  never treated as engine prefill duration. Ollama records engine prefill duration (`prompt_eval_duration`),
+  while runtimes without engine prefill telemetry set `prefill_duration_sec=None` with provenance
+  `"unavailable"` and report effective client prefill speed (`prefill_eff_tok_sec = prompt_eval_count / ttft_sec`).
+  Appended `prefill_duration_sec`, `decode_duration_sec`, and `prefill_provenance` to `SCORECARD_CSV_COLUMNS`
+  and propagated to scorecards and run records.
+- **Execution placement and CPU fallback reporting (Phase 14, item 14.1).** Distinguish
+  `requested_device` from `observed_device` across Ollama, Foundry Local, ONNX direct, and Prism.
+  When observed placement is not verifiable by the backend, it is recorded as `"unknown"` (never assumed
+  to run on GPU). When a GPU device was requested but execution observed on CPU, `cpu_fallback=True`
+  is set on per-scenario records and aggregated scorecards. Leaderboards and reports annotate CPU fallbacks
+  (`⚠️ CPU Fallback`) and unknown devices (`❓ Unknown Device`) rather than assuming 100% VRAM offload.
+  Appended `requested_device`, `observed_device`, and `cpu_fallback` columns to `SCORECARD_CSV_COLUMNS`.
 
 - `eval_tok_sec_floored` boolean flag (Phase 10): `FoundryClient`/`PrismClient` set it on every
   response whose raw eval window is under 1.5 ms (the 0.001 s measurement floor engaged for at

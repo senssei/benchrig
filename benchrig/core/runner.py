@@ -107,10 +107,12 @@ class BenchmarkRunner:
         config: dict[str, Any],
         progress_callback: Callable[[str, str], None] | None = None,
         on_result: Callable[[dict[str, Any]], None] | None = None,
+        warmup_runs: int = 0,
     ):
         self.client = client
         self.config = config
         self.progress_callback = progress_callback
+        self.warmup_runs = warmup_runs
         # Called with each scenario's result record as soon as it completes, so a caller can print it (or
         # advance a progress bar) in real time instead of waiting for the whole suite to finish.
         self.on_result = on_result
@@ -132,6 +134,7 @@ class BenchmarkRunner:
         # retried one-by-one. One `BenchmarkRunner` is created per model (benchrig/cli.py evaluate_model),
         # so this never leaks across models.
         self._capacity_exhausted_reason: str | None = None
+        self._executed_scenarios: set[tuple[str, str]] = set()
 
     def _notify(self, status: str, detail: str = ""):
         if self.progress_callback:
@@ -301,8 +304,48 @@ class BenchmarkRunner:
             "truncated": suite in ANSWER_SUITES and self._is_truncated(resp, options or {}),
             "hardware": hardware,
         }
+        # Phase 14: Execution placement (I11)
+        requested_dev = resp.get("requested_device") or getattr(self.client, "requested_device", "unknown")
+        observed_dev = resp.get("observed_device") or resp.get("device", "unknown")
+        cpu_fallback = bool(
+            resp.get("cpu_fallback", False)
+            or (requested_dev in ("gpu", "cuda", "metal") and str(observed_dev).lower() in ("cpu", "generic-cpu"))
+        )
+        record["requested_device"] = requested_dev
+        record["observed_device"] = observed_dev
+        record["cpu_fallback"] = cpu_fallback
+        # Phase 14: Timing breakdown and provenance (I12)
+        record["prefill_duration_sec"] = resp.get("prefill_duration_sec")
+        record["decode_duration_sec"] = resp.get("decode_duration_sec")
+        record["prefill_provenance"] = resp.get("prefill_provenance") or getattr(
+            self.client, "prefill_source", "unavailable"
+        )
+        record["prefill_eff_tok_sec"] = resp.get("prefill_eff_tok_sec") or (
+            round(prompt_tokens / ttft, 2) if ttft > 0 else 0.0
+        )
+        # Phase 14: Fixed context workload attribution (I13)
+        max_output_tokens = (options or {}).get("num_predict") or (options or {}).get("max_tokens") or 0
+        record["prompt_tokens"] = prompt_tokens
+        record["max_output_tokens"] = max_output_tokens
+        record["context_tokens"] = (options or {}).get("num_ctx") or (prompt_tokens + max_output_tokens)
+        # Phase 14: Cache mode and warm-up phase (I14)
+        record["phase"] = resp.get("phase", "measured")
+        if resp.get("prefix_cache_hit") or (resp.get("repeat_workload") and resp.get("prompt_eval_count") == 0):
+            cache_mode = "prefix_cached"
+        elif resp.get("repeat_workload"):
+            cache_mode = "unverified"
+        else:
+            scenario_key = (model, test_id)
+            if scenario_key not in self._executed_scenarios:
+                self._executed_scenarios.add(scenario_key)
+                cache_mode = "cold"
+            else:
+                cache_mode = "warm"
+        record["cache_mode"] = resp.get("cache_mode") or cache_mode
         if resp.get("device"):  # execution device reported by the server (e.g. Prism: "cuda" / "cpu")
             record["device"] = resp["device"]
+        elif observed_dev != "unknown":
+            record["device"] = observed_dev
         if resp.get("eval_tok_sec_floored"):  # the 0.001 s measurement floor set `eval_tok_per_sec` (spec.md Phase 10)
             record["eval_tok_sec_floored"] = True
         if self.cold_start_sec is not None:
@@ -348,9 +391,23 @@ class BenchmarkRunner:
         for sc in scenarios:
             self._notify(label, f"[{model}] {sc['name']}")
             options = self._effective_options(suite, model, sc.get("options", {}))
-            resp, hw = self._generate_with_telemetry(model, sc["prompt"], options)
 
+            # Phase 14: Warm-up iterations (I14)
+            for _ in range(self.warmup_runs):
+                w_resp, w_hw = self._generate_with_telemetry(model, sc["prompt"], options)
+                w_resp["phase"] = "warmup"
+                w_record = self._base_record(suite, sc["id"], sc["name"], model, w_resp, w_hw, options)
+                w_record["phase"] = "warmup"
+                w_record["eval_count"] = w_resp.get("eval_count", 0)
+                w_record.update(score(sc, w_resp))
+                results.append(w_record)
+                if self.on_result:
+                    self.on_result(w_record)
+
+            resp, hw = self._generate_with_telemetry(model, sc["prompt"], options)
+            resp["phase"] = "measured"
             record = self._base_record(suite, sc["id"], sc["name"], model, resp, hw, options)
+            record["phase"] = "measured"
             record["eval_count"] = resp.get("eval_count", 0)
             record.update(score(sc, resp))
             results.append(record)
@@ -445,6 +502,7 @@ class BenchmarkRunner:
                 # The model was cut off before finishing its code: say so instead of reporting "name is not defined".
                 error = f"Response truncated at num_predict={options.get('num_predict')} before the code was complete"
             record = {
+                "task_id": sc["id"],
                 "success": resp["success"] and test_res["passed"],
                 "passed": test_res["passed"],
                 "passed_tests": test_res["passed_tests"],
@@ -578,7 +636,9 @@ class BenchmarkRunner:
         model_results = [
             r
             for r in all_test_results
-            if r["model"] == model and (runtime is None or r.get("runtime", "ollama") == runtime)
+            if r["model"] == model
+            and (runtime is None or r.get("runtime", "ollama") == runtime)
+            and r.get("phase") != "warmup"
         ]
         if not model_results:
             return {}
@@ -604,9 +664,26 @@ class BenchmarkRunner:
         tokens_per_joule = sum(r["eval_count"] for r in powered) / joules if joules > 0 else None
         cold_starts = [r["cold_start_sec"] for r in model_results if "cold_start_sec" in r]
         gpu_fits = [r["gpu_fit_pct"] for r in model_results if "gpu_fit_pct" in r]
-        avg_prompt_tok_sec = _mean(r["prompt_tok_per_sec"] for r in speed_records)
-        avg_ttft = _mean(r["ttft_sec"] for r in speed_records)
+        avg_prompt_tok_sec = _mean(r.get("prompt_tok_per_sec", 0.0) for r in speed_records)
+        avg_ttft = _mean(r.get("ttft_sec", 0.0) for r in speed_records)
         avg_prefill_eff = _mean(r.get("prefill_eff_tok_per_sec", 0.0) for r in speed_records)
+
+        # Timing breakdown and provenance (Phase 14, I12)
+        prefill_durs = [r["prefill_duration_sec"] for r in speed_records if r.get("prefill_duration_sec") is not None]
+        avg_prefill_dur = _mean(prefill_durs) if prefill_durs else None
+
+        decode_durs = [r["decode_duration_sec"] for r in speed_records if r.get("decode_duration_sec") is not None]
+        avg_decode_dur = _mean(decode_durs) if decode_durs else None
+
+        provenances = {r.get("prefill_provenance") for r in speed_records if r.get("prefill_provenance")}
+        if "engine" in provenances:
+            sc_prefill_provenance = "engine"
+        elif "client_ttft" in provenances:
+            sc_prefill_provenance = "client_ttft"
+        elif provenances:
+            sc_prefill_provenance = next(iter(sorted(provenances)))
+        else:
+            sc_prefill_provenance = "unavailable"
 
         # Hardware metrics
         peak_vram = max((r.get("hardware", {}).get("vram_peak_mb", 0.0) for r in model_results), default=0.0)
@@ -639,11 +716,28 @@ class BenchmarkRunner:
             except ValueError:
                 total_vram = 0.0
 
-        # 2. Coding metrics
+        # Host RSS memory metrics (Phase 14, I13)
+        peak_rss = max(
+            (r.get("hardware", {}).get("peak_rss_mb", 0.0) for r in model_results),
+            default=0.0,
+        )
+        coverages = {
+            r.get("hardware", {}).get("rss_coverage")
+            for r in model_results
+            if r.get("hardware", {}).get("rss_coverage")
+        }
+        rss_coverage = "client_and_server" if "client_and_server" in coverages else "client_only"
+        ctx_tokens_list = [r["context_tokens"] for r in model_results if r.get("context_tokens")]
+        avg_ctx_tokens = int(round(_mean(ctx_tokens_list), 0)) if ctx_tokens_list else None
+
+        # 2. Coding metrics (Phase 14, I15)
         coding_records = [r for r in model_results if r.get("suite") == "coding"]
         total_coding_tests = sum(r.get("total_tests", 0) for r in coding_records)
         passed_coding_tests = sum(r.get("passed_tests", 0) for r in coding_records)
         coding_pass_rate = _percent(passed_coding_tests, total_coding_tests)
+        coding_task_count = len(coding_records)
+        coding_tasks_passed = sum(1 for r in coding_records if r.get("passed", False))
+        coding_task_pass_rate = _percent(coding_tasks_passed, coding_task_count)
 
         # 3. Reasoning metrics
         reasoning_records = [r for r in model_results if r.get("suite") == "reasoning"]
@@ -680,6 +774,19 @@ class BenchmarkRunner:
             ]
             spread = {key: [min(c[key] for c in per_run), max(c[key] for c in per_run)] for key in SPREAD_METRICS}
 
+        # Execution placement (Phase 14, I11)
+        req_devices = [r.get("requested_device") for r in model_results if r.get("requested_device")]
+        requested_device = req_devices[0] if req_devices else getattr(self.client, "requested_device", "unknown")
+        obs_devices = [
+            r.get("observed_device")
+            for r in model_results
+            if r.get("observed_device") and r["observed_device"] != "unknown"
+        ]
+        observed_device = obs_devices[0] if obs_devices else "unknown"
+        cpu_fallback = any(r.get("cpu_fallback") for r in model_results) or bool(
+            requested_device in ("gpu", "cuda", "metal") and str(observed_device).lower() in ("cpu", "generic-cpu")
+        )
+
         return {
             "model": model,
             "runtime": sc_runtime,
@@ -688,6 +795,11 @@ class BenchmarkRunner:
             "spread": spread,
             "composite_score": round(composite_score, 1),
             "coding_pass_rate": round(coding_pass_rate, 1),
+            "coding_task_count": coding_task_count,
+            "coding_tasks_passed": coding_tasks_passed,
+            "coding_task_pass_rate": round(coding_task_pass_rate, 1),
+            "coding_assertion_count": total_coding_tests,
+            "coding_assertions_passed": passed_coding_tests,
             "reasoning_accuracy": round(reasoning_accuracy, 1),
             "avg_eval_tok_sec": round(avg_eval_tok_sec, 1),
             "avg_eval_tok_sec_mean": round(avg_eval_tok_sec_mean, 1),
@@ -715,6 +827,15 @@ class BenchmarkRunner:
             "gpu_type": self.specs.get("gpu_type", "unknown"),
             "vram_warning": vram_warning,
             "total_runs": len(model_results),
+            "requested_device": requested_device,
+            "observed_device": observed_device,
+            "cpu_fallback": cpu_fallback,
+            "prefill_duration_sec": round(avg_prefill_dur, 4) if avg_prefill_dur is not None else None,
+            "decode_duration_sec": round(avg_decode_dur, 4) if avg_decode_dur is not None else None,
+            "prefill_provenance": sc_prefill_provenance,
+            "peak_rss_mb": round(peak_rss, 1),
+            "rss_coverage": rss_coverage,
+            "context_tokens": avg_ctx_tokens,
         }
 
 
