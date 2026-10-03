@@ -96,5 +96,101 @@ class MarkdownAttachmentTests(unittest.TestCase):
         self.assertNotIn("![]", content, "image embed appeared even though --chart was not requested")
 
 
+class CompositeWeightsHeaderTests(unittest.TestCase):
+    """Tests for surfacing active composite scoring weights in the report header (Item 12.6)."""
+
+    def test_default_weights_rendered_in_header(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [card("phi4-mini:latest")]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content = generate_markdown_report(
+                scorecards,
+                [],
+                {},
+                output_path=md_path,
+                config={"benchmark": {"composite_weights": {"coding": 0.40, "reasoning": 0.30, "performance": 0.30}}},
+            )
+        self.assertIn("**Composite weights:** coding=0.40, reasoning=0.30, performance=0.30", content)
+
+    def test_overridden_weights_rendered_in_header(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [card("phi4-mini:latest")]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content = generate_markdown_report(
+                scorecards,
+                [],
+                {},
+                output_path=md_path,
+                config={"benchmark": {"composite_weights": {"coding": 0.50, "reasoning": 0.30, "performance": 0.20}}},
+            )
+        self.assertIn("**Composite weights:** coding=0.50, reasoning=0.30, performance=0.20", content)
+
+    def test_omitted_weights_fall_back_to_defaults(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [card("phi4-mini:latest")]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content = generate_markdown_report(
+                scorecards,
+                [],
+                {},
+                output_path=md_path,
+                config={},
+            )
+        self.assertIn("**Composite weights:** coding=0.40, reasoning=0.30, performance=0.30", content)
+
+    def test_weights_header_present_when_config_is_omitted(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [card("phi4-mini:latest")]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content = generate_markdown_report(scorecards, [], {}, output_path=md_path)
+        self.assertIn("**Composite weights:** coding=0.40, reasoning=0.30, performance=0.30", content)
+
+    def test_weights_resolved_from_scorecard_if_config_omitted(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [
+            card(
+                "phi4-mini:latest",
+                composite_weights={"coding": 0.60, "reasoning": 0.20, "performance": 0.20},
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content = generate_markdown_report(scorecards, [], {}, output_path=md_path)
+        self.assertIn("**Composite weights:** coding=0.60, reasoning=0.20, performance=0.20", content)
+
+    def test_resilient_to_null_benchmark_config_or_none_weight_values(self):
+        from benchrig.reporting.markdown import generate_markdown_report
+
+        scorecards = [card("phi4-mini:latest")]
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = os.path.join(tmp, "report.md")
+            content1 = generate_markdown_report(
+                scorecards,
+                [],
+                {},
+                output_path=md_path,
+                config={"benchmark": None},
+            )
+            self.assertIn("**Composite weights:** coding=0.40, reasoning=0.30, performance=0.30", content1)
+
+            content2 = generate_markdown_report(
+                scorecards,
+                [],
+                {},
+                output_path=md_path,
+                config={"benchmark": {"composite_weights": {"coding": None}}},
+            )
+            self.assertIn("**Composite weights:** coding=0.40, reasoning=0.30, performance=0.30", content2)
+
+
 if __name__ == "__main__":
     unittest.main()

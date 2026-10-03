@@ -454,3 +454,15 @@ Scope added at the operator's request on 2026-10-03; implementation begins once 
 - Move the runtime-by-runtime operational debugging guide (§1–§4) from `AGENTS.md` into `docs/agent-debugging.md`.
 - Register `docs/agent-debugging.md` in `mkdocs.yml` navigation under Project / Agent Debugging.
 - In `AGENTS.md`, retain high-level instructions, mandatory gates, and a prominent link pointing coding agents to `docs/agent-debugging.md`.
+
+### 12.6 Surface composite weights in Markdown report
+- Render active composite scoring weights in the metadata header of `results/LATEST_SUMMARY.md`:
+  `**Composite weights:** coding={w_code:.2f}, reasoning={w_reas:.2f}, performance={w_perf:.2f}  `
+- Resolve weights from `config["benchmark"]["composite_weights"]` (or direct argument / scorecard), falling back to `DEFAULT_COMPOSITE_WEIGHTS` (`coding: 0.40, reasoning: 0.30, performance: 0.30`).
+- Updates `benchrig/reporting/markdown.py`, `benchrig/core/runner.py`, `tests/test_report_markdown.py`.
+
+### 12.8 Deduplication and dedent regression tests for code extraction
+- Pin `extract_python_code` single-fence vs multi-fence dedent behavior with regression tests in `tests/test_sandbox.py`:
+  1. Single ```python fence with uniform indentation margin is dedented so that unindented top-level statements do not raise `IndentationError`.
+  2. Multiple fences where subsequent blocks are continuation fragments are NOT individually dedented (relative structure preserved).
+  3. Plain text with zero fences returns stripped raw text.

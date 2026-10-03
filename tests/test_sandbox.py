@@ -56,6 +56,54 @@ class ExtractCodeTests(unittest.TestCase):
         self.assertEqual(code, "def add(a, b):\n    return a + b\n\nprint(add(1, 2))")
 
 
+class ExtractPythonCodeDedentTests(unittest.TestCase):
+    """Regression suite pinning extract_python_code single-fence vs multi-fence dedent behavior (Item 12.8)."""
+
+    def test_single_fence_uniform_margin_is_dedented(self):
+        """Single fence nested under a markdown list/bullet margin is dedented to prevent IndentationError."""
+        text = (
+            "- Implementation:\n"
+            "    ```python\n"
+            "    def solve(n):\n"
+            "        return n * 2\n"
+            "\n"
+            "    total = solve(10)\n"
+            "    ```\n"
+        )
+        code = extract_python_code(text)
+        expected = "def solve(n):\n    return n * 2\n\ntotal = solve(10)"
+        self.assertEqual(code, expected)
+        compile(code, "<extracted>", "exec")
+
+    def test_multiple_fences_continuation_indentation_preserved(self):
+        """Multiple fences where a subsequent block is a continuation fragment are not individually dedented."""
+        text = (
+            "```python\n"
+            "class MathService:\n"
+            "    def multiply(self, a, b):\n"
+            "        return a * b\n"
+            "```\n\n"
+            "And here is the addition method:\n\n"
+            "```python\n"
+            "    def add(self, a, b):\n"
+            "        return a + b\n"
+            "```\n"
+        )
+        code = extract_python_code(text)
+        self.assertIn("    def add(self, a, b):", code)
+        res = run_code_with_tests(
+            code,
+            ["assert MathService().multiply(3, 4) == 12", "assert MathService().add(3, 4) == 7"],
+        )
+        self.assertTrue(res["passed"], res.get("error"))
+
+    def test_zero_fences_returns_raw_stripped_text(self):
+        """Zero code fences returns raw stripped text."""
+        text = "   \n def raw_func():\n    return 42\n\n  "
+        code = extract_python_code(text)
+        self.assertEqual(code, "def raw_func():\n    return 42")
+
+
 class RunCodeTests(unittest.TestCase):
     def test_partial_pass_counts_individual_assertions(self):
         res = run_code_with_tests("def f(x):\n    return x + 1", ["assert f(1) == 2", "assert f(1) == 3"])

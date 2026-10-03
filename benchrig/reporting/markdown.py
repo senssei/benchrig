@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import Any
 
+from benchrig.core.runner import DEFAULT_COMPOSITE_WEIGHTS
 from benchrig.core.runtimes import (
     DIRTY_BASELINE_NOTE,
     ESTIMATED_USAGE_NOTE,
@@ -44,6 +45,8 @@ def generate_markdown_report(
     output_path: str = "results/LATEST_SUMMARY.md",
     chart_path: str | None = None,
     csv_path: str | None = None,
+    config: dict[str, Any] | None = None,
+    composite_weights: dict[str, float] | None = None,
 ) -> str:
     """Generate comprehensive Markdown report with tables and recommendations.
 
@@ -53,6 +56,34 @@ def generate_markdown_report(
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     ranked = sorted(scorecards, key=lambda x: x.get("composite_score", 0), reverse=True)
+
+    # Resolve composite weights for the report header (Item 12.6)
+    raw_weights = None
+    if isinstance(composite_weights, dict):
+        raw_weights = composite_weights
+    elif isinstance(config, dict):
+        bench_cfg = config.get("benchmark")
+        if isinstance(bench_cfg, dict):
+            raw_weights = bench_cfg.get("composite_weights")
+    if not isinstance(raw_weights, dict):
+        for sc in scorecards:
+            if isinstance(sc.get("composite_weights"), dict):
+                raw_weights = sc["composite_weights"]
+                break
+    if not isinstance(raw_weights, dict):
+        raw_weights = DEFAULT_COMPOSITE_WEIGHTS
+
+    def _safe_weight(val: Any, default_val: float) -> float:
+        if val is None:
+            return default_val
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default_val
+
+    w_coding = _safe_weight(raw_weights.get("coding"), DEFAULT_COMPOSITE_WEIGHTS["coding"])
+    w_reasoning = _safe_weight(raw_weights.get("reasoning"), DEFAULT_COMPOSITE_WEIGHTS["reasoning"])
+    w_performance = _safe_weight(raw_weights.get("performance"), DEFAULT_COMPOSITE_WEIGHTS["performance"])
 
     # Detect category winners
     best_overall = ranked[0] if ranked else None
@@ -73,6 +104,7 @@ def generate_markdown_report(
         f"**CPU**: `{system_specs.get('cpu_model', 'Unknown')}` ({system_specs.get('cpu_cores', 'Unknown')} threads/cores)  ",
         f"**System RAM**: `{system_specs.get('ram_total_gb', 'Unknown')} GB`  ",
         f"**Environment**: `{system_specs.get('platform', 'Unknown')}` (`{system_specs.get('driver_version', 'N/A')}`)  ",
+        f"**Composite weights:** coding={w_coding:.2f}, reasoning={w_reasoning:.2f}, performance={w_performance:.2f}  ",
         "",
         "---",
         "",

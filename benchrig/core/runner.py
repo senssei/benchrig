@@ -750,11 +750,28 @@ class BenchmarkRunner:
         efficiency_score = max(0.0, speed_factor - vram_penalty)
 
         # Composite score
-        weights = self.config.get("benchmark", {}).get("composite_weights", DEFAULT_COMPOSITE_WEIGHTS)
+        bench_cfg = self.config.get("benchmark") if isinstance(self.config, dict) else None
+        raw_weights = bench_cfg.get("composite_weights") if isinstance(bench_cfg, dict) else None
+        if not isinstance(raw_weights, dict):
+            raw_weights = DEFAULT_COMPOSITE_WEIGHTS
+
+        def _safe_weight(val: Any, default_val: float) -> float:
+            if val is None:
+                return default_val
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return default_val
+
+        resolved_weights = {
+            "coding": _safe_weight(raw_weights.get("coding"), DEFAULT_COMPOSITE_WEIGHTS["coding"]),
+            "reasoning": _safe_weight(raw_weights.get("reasoning"), DEFAULT_COMPOSITE_WEIGHTS["reasoning"]),
+            "performance": _safe_weight(raw_weights.get("performance"), DEFAULT_COMPOSITE_WEIGHTS["performance"]),
+        }
         composite_score = (
-            coding_pass_rate * weights.get("coding", DEFAULT_COMPOSITE_WEIGHTS["coding"])
-            + reasoning_accuracy * weights.get("reasoning", DEFAULT_COMPOSITE_WEIGHTS["reasoning"])
-            + efficiency_score * weights.get("performance", DEFAULT_COMPOSITE_WEIGHTS["performance"])
+            coding_pass_rate * resolved_weights["coding"]
+            + reasoning_accuracy * resolved_weights["reasoning"]
+            + efficiency_score * resolved_weights["performance"]
         )
 
         # 5. Token savings & cloud cost estimation
@@ -794,6 +811,7 @@ class BenchmarkRunner:
             "runs": len(run_ids),
             "spread": spread,
             "composite_score": round(composite_score, 1),
+            "composite_weights": resolved_weights,
             "coding_pass_rate": round(coding_pass_rate, 1),
             "coding_task_count": coding_task_count,
             "coding_tasks_passed": coding_tasks_passed,

@@ -652,6 +652,7 @@ def save_outputs(
     total_duration: float,
     csv_path: str | None = None,
     chart_path: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Write raw JSON, latest-run JSON and markdown summary; return (markdown_path, raw_json_path).
 
@@ -694,6 +695,7 @@ def save_outputs(
         output_path=md_report_path,
         chart_path=os.path.relpath(chart_path, md_dir) if chart_path else None,
         csv_path=os.path.relpath(csv_path, md_dir) if csv_path else None,
+        config=config,
     )
     return md_report_path, raw_json_path
 
@@ -839,6 +841,7 @@ def run_benchmarks(
             total_duration_sec,
             csv_path=args.csv,
             chart_path=args.chart,
+            config=config,
         )
 
         tokens_saved = sum(sc.get("total_tokens_saved", 0) for sc in scorecards)

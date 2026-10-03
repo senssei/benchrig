@@ -715,7 +715,7 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 
 ## Phase 12: Repo-quality hardening from independent review
 
-Status: approved for items 12.1, 12.2, 12.9, 12.10 (operator request 2026-10-03); items 12.1, 12.2, 12.9, 12.10 completed and independently reviewed (3 findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision.
+Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision.
 
 - [x] **12.1 Sandbox docstring matches actual isolation level:** update docstrings in `benchrig/core/sandbox.py`, CLI `--help`, and docs to describe process-group isolation and disclose residual risks. Files: `benchrig/core/sandbox.py`, `benchrig/cli.py`, `docs/benchmark-suites.md`, `docs/development.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **12.2 Document coding suite is Python-only:** add clear Python-only scope statements and create `benchrig/data/scenarios/coding.README.md`. Files: `docs/benchmark-suites.md`, `README.md`, `benchrig/data/scenarios/coding.README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
@@ -756,18 +756,7 @@ Status: approved for items 12.1, 12.2, 12.9, 12.10 (operator request 2026-10-03)
          that fails. README "Option B" will reference it as the bootstrap path.
          Status: proposed; operator-side script (similar to Phase 3 — operator runs it once per host). -->
 
-- [ ] <!-- Item 12.6: Surface composite weights in `LATEST_SUMMARY.md`.
-         Files: benchrig/reporting/markdown.py (render an active-weights block at the top of the report,
-                sourced from the same config dict the runner uses), benchrig/core/runner.py (confirm
-                weights resolve from `config["benchmark"]["composite_weights"]` with
-                `DEFAULT_COMPOSITE_WEIGHTS` as the fallback; no behaviour change expected).
-         Test: tests/test_report_markdown.py::CompositeWeightsHeaderTests — generate a report with
-               default weights and assert the markdown contains a `**Composite weights:** coding=0.40,
-               reasoning=0.30, performance=0.30` block at the top; generate a report with overridden
-               weights (`{"coding": 0.5, "reasoning": 0.3, "performance": 0.2}`) and assert the block
-               reflects the override; generate a report with weights omitted from config and assert the
-               default fallback is shown.
-         Status: proposed. -->
+- [x] **12.6 Surface composite weights in LATEST_SUMMARY.md:** render active composite scoring weights in the metadata header of the markdown report. Files: `benchrig/reporting/markdown.py`, `benchrig/core/runner.py`, `tests/test_report_markdown.py`. Verification: `tests/test_report_markdown.py::CompositeWeightsHeaderTests`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
 - [ ] <!-- Item 12.7: Either auto-generate the analysis reports or move them under `docs/analysis/`.
          Files: benchrig/reporting/markdown.py (add `generate_run_analysis(scorecard, anomalies)` and
@@ -784,18 +773,7 @@ Status: approved for items 12.1, 12.2, 12.9, 12.10 (operator request 2026-10-03)
          Open question: needs operator decision on generate-vs-move before spec.
          Status: proposed; gated on operator direction. -->
 
-- [ ] <!-- Item 12.8: Pin the `extract_python_code` single-vs-multi-fence dedent behaviour.
-         Files: tests/test_sandbox.py (extend).
-         Test: tests/test_sandbox.py::ExtractPythonCodeDedentTests — three regression cases:
-               (a) a single ```python fence whose lines carry a uniform bullet-list margin is dedented
-                   so the extracted solution is valid Python (`IndentationError` would otherwise fire on
-                   later same-level statements);
-               (b) two fences where the second is a class-method continuation at the same indent as
-                   the first is NOT dedented (continuation preserved);
-               (c) zero fences returns the raw stripped text.
-               Asserts lock the comment in `benchrig/core/sandbox.py:30-32` so future refactors don't
-               quietly break it.
-         Status: proposed; test-only. -->
+- [x] **12.8 Pin extract_python_code single-vs-multi-fence dedent behavior:** add regression tests pinning single-fence dedent, multi-fence indentation preservation, and zero-fence fallback. Files: `tests/test_sandbox.py`. Verification: `tests/test_sandbox.py::ExtractPythonCodeDedentTests`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
 - [x] **12.9 Add last green CI run indicator to README:** add indicator link to latest successful CI run. Files: `README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **12.10 Slim AGENTS.md and move operational playbook to docs:** create `docs/agent-debugging.md`, register in `mkdocs.yml`, and streamline `AGENTS.md`. Files: `AGENTS.md`, `docs/agent-debugging.md`, `mkdocs.yml`. Shipped 2026-10-03, sdlc_check.py exit 0.

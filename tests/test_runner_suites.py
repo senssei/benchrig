@@ -190,6 +190,44 @@ class RunnerSuiteTests(unittest.TestCase):
         self.assertEqual(sc["reasoning_accuracy"], 0.0)
         # 0.4 * 75 + 0.3 * 0 + 0.3 * 100
         self.assertEqual(sc["composite_score"], 60.0)
+        self.assertEqual(sc["composite_weights"], {"coding": 0.40, "reasoning": 0.30, "performance": 0.30})
+
+    def test_scorecard_resilient_to_null_benchmark_config_or_weights(self):
+        runner_null_bench = BenchmarkRunner(client=self.client, config={"benchmark": None})
+        sc1 = runner_null_bench.compute_model_scorecard(
+            "m",
+            [
+                {
+                    "model": "m",
+                    "suite": "coding",
+                    "passed_tests": 1,
+                    "total_tests": 1,
+                    "eval_tok_per_sec": 50,
+                    "prompt_tok_per_sec": 50,
+                    "ttft_sec": 0.1,
+                }
+            ],
+        )
+        self.assertEqual(sc1["composite_weights"], {"coding": 0.40, "reasoning": 0.30, "performance": 0.30})
+
+        runner_null_weights = BenchmarkRunner(
+            client=self.client, config={"benchmark": {"composite_weights": {"coding": None}}}
+        )
+        sc2 = runner_null_weights.compute_model_scorecard(
+            "m",
+            [
+                {
+                    "model": "m",
+                    "suite": "coding",
+                    "passed_tests": 1,
+                    "total_tests": 1,
+                    "eval_tok_per_sec": 50,
+                    "prompt_tok_per_sec": 50,
+                    "ttft_sec": 0.1,
+                }
+            ],
+        )
+        self.assertEqual(sc2["composite_weights"], {"coding": 0.40, "reasoning": 0.30, "performance": 0.30})
 
 
 if __name__ == "__main__":
