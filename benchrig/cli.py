@@ -53,7 +53,7 @@ SCENARIOS_DIR = str(BUNDLED_DATA / "scenarios")
 # Suite name -> (scenario file, BenchmarkRunner method, progress message). Order is execution order.
 SUITES: dict[str, tuple[str, str, str]] = {
     "speed": ("speed.json", "run_speed_suite", "Running speed & throughput tests..."),
-    "coding": ("coding.json", "run_coding_suite", "Running coding tests (automated unit test sandbox)..."),
+    "coding": ("coding.json", "run_coding_suite", "Running coding tests (isolated unit test subprocess)..."),
     "reasoning": ("reasoning.json", "run_reasoning_suite", "Running reasoning & logic tests..."),
     "polish": ("polish.json", "run_polish_suite", "Running Polish multilingual NLP tests..."),
     "context": ("context_scaling.json", "run_context_suite", "Running context scaling suite (512 - 8k tokens)..."),

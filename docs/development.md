@@ -91,6 +91,8 @@ The same three checks run in CI ([`.github/workflows/ci.yml`](https://github.com
 The code execution engine ([`benchrig/core/sandbox.py`](https://github.com/senssei/benchrig/blob/main/benchrig/core/sandbox.py)) enforces strict isolation rules:
 - **Subprocess Isolation**: Generated code runs in an isolated `subprocess.Popen` in its own session (dedicated process group).
 - **Process Group Termination**: If a model generates an infinite loop or blocks indefinitely, the entire process group is terminated using `os.killpg` after the timeout expires, so spawned grandchildren cannot outlive the test.
+- **Verdict Integrity via Out-of-Band Tokens**: Test completion and assertion outcomes are reported via temporary files authenticated with cryptographic tokens; candidate stdout/stderr cannot forge test counts or verdicts.
+- **Residual Risk & Trust Boundary**: Isolation operates at the process-group level, not via OS containerization (e.g. seccomp or namespaces). Untrusted code runs under the user's Python interpreter and could theoretically attempt system or socket calls.
 - **No Global Namespace Pollution**: Code execution does not import or manipulate BenchRig's host process memory.
 - **Ephemeral Filesystem Cleanliness**: All harness temporary files are deleted immediately in `finally:` blocks.
 

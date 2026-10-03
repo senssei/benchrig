@@ -51,7 +51,7 @@ benchrig = "benchrig.cli:main"
 include = ["benchrig*"]
 
 [tool.setuptools.package-data]
-benchrig = ["data/*.yaml", "data/scenarios/*.json"]
+benchrig = ["data/*.yaml", "data/scenarios/*.json", "data/scenarios/*.md"]
 
 [tool.setuptools.dynamic]
 version = { attr = "benchrig.__version__" }

@@ -8,6 +8,7 @@ Tailored for **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** and **
 [![Docs](https://img.shields.io/badge/docs-senssei.github.io%2Fbenchrig-blue.svg)](https://senssei.github.io/benchrig/)
 [![PyPI](https://img.shields.io/pypi/v/benchrig.svg)](https://pypi.org/project/benchrig/)
 [![CI](https://github.com/senssei/benchrig/actions/workflows/ci.yml/badge.svg)](https://github.com/senssei/benchrig/actions/workflows/ci.yml)
+[![Last Green CI](https://img.shields.io/github/actions/workflow/status/senssei/benchrig/ci.yml?branch=main&label=last%20green%20run)](https://github.com/senssei/benchrig/actions/workflows/ci.yml?query=branch%3Amain+is%3Asuccess)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/Ollama-REST%20API-black?logo=ollama)](https://ollama.com)
@@ -79,7 +80,7 @@ flowchart TD
 | :--- | :--- |
 | 🚀 **Multi-Runtime Engine Support** | Evaluate models across **Ollama** (`llama.cpp`), **Microsoft Foundry Local**, direct **ONNX Runtime GenAI** and a **Prism** server with unified CLI and scoring. See [Runtimes](docs/runtimes.md). |
 | ⏱ **High-Precision Timing** | Measures generation tokens/sec, prefill tokens/sec, and Time to First Token (TTFT) via nanosecond-precision streaming. |
-| 💻 **Automated Sandboxed Coding** | Automatically extracts code blocks from LLM responses, wraps them with test harnesses, and executes them in isolated subprocesses against test assertions. |
+| 💻 **Automated Sandboxed Coding** | Automatically extracts code blocks from LLM responses, wraps them with test harnesses, and executes them in isolated subprocesses against test assertions (currently Python-only; JS/TS scenario packs are not bundled). |
 | 🧠 **Reasoning & `<think>` Parser** | Detects whether models generate chain-of-thought blocks (`<think>...</think>`), calculates thinking token volume, and extracts final answers. |
 | 📐 **Context Scaling (512 - 8k)** | Progressively loads larger contexts (512, 1024, 2048, 4096, 8192 tokens) to assess TTFT degradation and memory growth. |
 | 📊 **Hardware Telemetry** | Samples GPU/UMA memory usage, GPU utilization %, temperatures, and power draw during execution without requiring root on macOS. |
@@ -261,7 +262,7 @@ their own repository: [**senssei/local-coders**](https://github.com/senssei/loca
 
 Test cases are stored as clean JSON files inside the [scenarios/](benchrig/data/scenarios/) directory:
 
-- [scenarios/coding.json](benchrig/data/scenarios/coding.json): Python coding tasks paired with test assertion arrays evaluated in sandbox subprocesses.
+- [scenarios/coding.json](benchrig/data/scenarios/coding.json): Python coding tasks paired with test assertion arrays evaluated in sandbox subprocesses. (Today the coding suite only exercises Python; JS/TS scenario packs are not bundled; see [coding.README.md](benchrig/data/scenarios/coding.README.md)).
 - [scenarios/reasoning.json](benchrig/data/scenarios/reasoning.json): Multi-step math and logic puzzles with expected ground truth strings and regex patterns.
 - [scenarios/speed.json](benchrig/data/scenarios/speed.json): Raw generation and prefill throughput prompts.
 - [scenarios/context_scaling.json](benchrig/data/scenarios/context_scaling.json): Context scaling tests up to 8k tokens.

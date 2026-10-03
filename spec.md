@@ -435,3 +435,22 @@ Scope added at the operator's request on 2026-10-03; implementation begins once 
   - Markdown report shows `Tasks Passed: X/Y (Z%)` alongside `Assertions: A/B (C%)`.
   - CSV export includes `coding_task_pass_rate`, `coding_tasks_passed`, `coding_task_count`, `coding_assertions_passed`, `coding_assertion_count`.
   - Updates `benchrig/core/runner.py`, `benchrig/reporting/`, `tests/test_report_markdown.py`, `tests/test_report_csv.py`, `docs/benchmark-suites.md`, `CHANGELOG.md`.
+
+## Planned behavior: Phase 12 — Repo-quality hardening (Items 12.1, 12.2, 12.9, 12.10)
+
+### 12.1 Sandbox isolation level and residual risk disclosure
+- Module docstrings and method comments in `benchrig/core/sandbox.py`, CLI `--help`, and documentation define the sandbox accurately as "isolated subprocess and process-group execution" rather than OS-level containerization.
+- Disclose residual risk: while processes run in dedicated process groups with strict timeouts (10s) and out-of-band JSON token verification, candidate code executes under the user's Python interpreter and can attempt system calls (`socket`, `subprocess`, `ctypes`).
+- Architecture docs and CLI descriptions are aligned to use "isolated subprocess execution" consistently.
+
+### 12.2 Coding suite language scope (Python-only)
+- Explicitly document across `README.md`, `docs/benchmark-suites.md`, and a new sibling `benchrig/data/scenarios/coding.README.md` that the coding suite currently tests Python algorithms only.
+- State clearly that multi-language execution (JS/TS, Rust, Go) is not bundled in default scenarios.
+
+### 12.9 Continuous integration indicator
+- Ensure `README.md` features clear indicators for GitHub Actions CI build status, linking directly to workflow runs.
+
+### 12.10 Operational playbook migration
+- Move the runtime-by-runtime operational debugging guide (§1–§4) from `AGENTS.md` into `docs/agent-debugging.md`.
+- Register `docs/agent-debugging.md` in `mkdocs.yml` navigation under Project / Agent Debugging.
+- In `AGENTS.md`, retain high-level instructions, mandatory gates, and a prominent link pointing coding agents to `docs/agent-debugging.md`.

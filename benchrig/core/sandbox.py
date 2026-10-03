@@ -1,4 +1,12 @@
-"""Sandboxed Python code execution for verifying unit tests and coding tasks."""
+"""
+Isolated subprocess execution for verifying Python coding tasks and unit tests.
+
+Uses dedicated process groups with strict timeouts and out-of-band JSON token
+verification. Note on isolation: this provides process-group containment and
+clean timeout termination, not OS-level sandboxing (e.g. seccomp or containers).
+Untrusted code executes under the user's Python interpreter and could attempt
+system calls (subprocess, socket, ctypes).
+"""
 
 import json
 import os
@@ -162,7 +170,10 @@ def run_code_with_tests(
     timeout_sec: float = 5.0,
 ) -> dict[str, Any]:
     """
-    Execute extracted solution code concatenated with test assertions in an isolated process.
+    Execute extracted solution code concatenated with test assertions in an isolated subprocess.
+
+    Runs in a dedicated process group with strict timeouts (killed via SIGKILL on POSIX)
+    and out-of-band JSON completion token verification.
 
     Returns:
         passed (bool), total_tests (int), passed_tests (int), pass_ratio (float),

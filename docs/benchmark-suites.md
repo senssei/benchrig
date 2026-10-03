@@ -26,14 +26,17 @@ The speed suite evaluates inference latency, maximum decoder velocity, and promp
 
 ## 2. 💻 Coding & Algorithmic Sandbox Suite (`coding`)
 
-The coding suite measures whether an LLM produces syntactically valid and deterministically functional Python code without human intervention.
+The coding suite measures whether an LLM produces syntactically valid and deterministically functional Python code without human intervention. Today the coding suite only exercises Python; JS/TS and other multi-language scenario packs are not bundled.
 
 ### Isolated Subprocess Sandbox (`benchrig/core/sandbox.py`)
-Rather than relying on lexical matching (e.g. BLEU/ROUGE), BenchRig executes the model's generated code inside an **isolated Python sandbox**:
+Rather than relying on lexical matching (e.g. BLEU/ROUGE), BenchRig executes the model's generated code inside an **isolated Python subprocess**:
 1. Strips conversational prose, backticks (` ```python `), and trailing explanations.
 2. Appends an automated test harness with strict `assert` statements covering edge cases.
-3. Spawns an isolated `subprocess.run` with a strict 10-second timeout.
-4. Validates stdout, stderr, and assertion return codes.
+3. Spawns an isolated `subprocess.Popen` in its own process group with a strict timeout.
+4. Validates assertion outcomes via out-of-band JSON token verification, ignoring candidate stdout/stderr for verdict decisions.
+
+!!! warning "Subprocess Isolation & Residual Risk"
+    BenchRig provides **process-group isolation and strict timeouts**, not OS-level sandboxing (such as Docker, seccomp, or WebAssembly). While out-of-band JSON tokens prevent candidate output from forging verdicts or test counts, the generated code runs under the current Python interpreter and could attempt system or network calls (`subprocess`, `socket`, `ctypes`).
 
 **Reasoning traces and cut-off answers.** A model that thinks first (`<think>...</think>`, e.g. DeepSeek-R1) can spend its whole
 token budget before writing any code. Code inside the `<think>` trace is ignored, and a response that stopped at the token

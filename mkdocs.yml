@@ -62,4 +62,5 @@ nav:
   - Project:
       - Architecture: architecture.md
       - Development: development.md
+      - Agent Debugging: agent-debugging.md
       - Changelog: changelog.md

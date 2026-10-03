@@ -715,27 +715,10 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 
 ## Phase 12: Repo-quality hardening from independent review
 
-Status: proposed (2026-09-24); surfaced from an independent review of the existing code/docs/tests; **pending operator approval** before any item moves from `proposed` to `approved` and `spec.md` is updated for it. Items are ordered roughly by impact-per-effort; the docs-only items (12.1, 12.2, 12.9, 12.10) can be batched and shipped first with no code churn, the rest need a real `spec.md` section before implementation.
+Status: approved for items 12.1, 12.2, 12.9, 12.10 (operator request 2026-10-03); items 12.1, 12.2, 12.9, 12.10 completed and independently reviewed (3 findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision.
 
-- [ ] <!-- Item 12.1: Sandbox docstring matches actual isolation level.
-         Files: benchrig/core/sandbox.py (module docstring + `run_code_with_tests`/`_run_isolated` docstrings).
-         No new test; documentation-only correction. Current wording says "Sandboxed Python code execution";
-         `_run_isolated` already says "Run a script in its own process group" (accurate). Downscope the
-         module-level wording to "isolated subprocess / process-group isolation" and add a one-line note
-         about the residual risk: a generated Python file can `import subprocess`/`socket`/`ctypes`; we
-         rely on the prompt's "respond only with Python" instruction, not OS-level sandboxing. CLI `--help`
-         text and any README/architecture prose that says "isolated sandbox" should be tightened in the
-         same pass.
-         Status: proposed; docs-only. -->
-
-- [ ] <!-- Item 12.2: Document the coding suite is Python-only.
-         Files: docs/benchmark-suites.md (Coding Suite section), README.md (Key Features table + "Customizing
-                Scenarios" section), benchrig/data/scenarios/coding.json (top-of-file comment in a sibling
-                `coding.README.md`, since JSON has no comment syntax).
-         No new test; docs-only. Add one sentence in each location: "Today the coding suite only exercises
-         Python; JS/TS scenario packs are not bundled." A `coding.README.md` next to `coding.json` becomes
-         the canonical place to list which language flavours are/aren't supported.
-         Status: proposed; docs-only. -->
+- [x] **12.1 Sandbox docstring matches actual isolation level:** update docstrings in `benchrig/core/sandbox.py`, CLI `--help`, and docs to describe process-group isolation and disclose residual risks. Files: `benchrig/core/sandbox.py`, `benchrig/cli.py`, `docs/benchmark-suites.md`, `docs/development.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
+- [x] **12.2 Document coding suite is Python-only:** add clear Python-only scope statements and create `benchrig/data/scenarios/coding.README.md`. Files: `docs/benchmark-suites.md`, `README.md`, `benchrig/data/scenarios/coding.README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
 - [ ] <!-- Item 12.3: Numeric-equivalence layer for reasoning ground truth.
          Files: benchrig/core/reasoning_parser.py (extend `evaluate_reasoning_answer` with a numeric
@@ -814,22 +797,8 @@ Status: proposed (2026-09-24); surfaced from an independent review of the existi
                quietly break it.
          Status: proposed; test-only. -->
 
-- [ ] <!-- Item 12.9: Add a "last green CI run" indicator to the README.
-         Files: README.md (add one line below the CI badge linking to the latest successful run),
-                .github/workflows/ci.yml (no change needed if using shields.io + GitHub Actions' built-in
-                last-success badge URL; otherwise add a step that writes a `last-green.json` artifact).
-         No new test (CI + docs).
-         Status: proposed; docs/CI-only. -->
-
-- [ ] <!-- Item 12.10: Slim `AGENTS.md` and move the operational playbook to `docs/`.
-         Files: AGENTS.md (keep the top-level rules: SDLC entry, agent debugging & troubleshooting playbook
-                summary, mandatory verification gate; point to docs/agent-debugging.md for the full
-                playbook), docs/agent-debugging.md (new — content moved verbatim from the current
-                AGENTS.md §1–§4, the runtime-by-runtime diagnostic routine).
-         No new test (docs-only). Verify all cross-references from AGENTS.md resolve to
-         docs/agent-debugging.md and that the verification gate command at the bottom of AGENTS.md still
-         works unchanged.
-         Status: proposed; docs-only. -->
+- [x] **12.9 Add last green CI run indicator to README:** add indicator link to latest successful CI run. Files: `README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
+- [x] **12.10 Slim AGENTS.md and move operational playbook to docs:** create `docs/agent-debugging.md`, register in `mkdocs.yml`, and streamline `AGENTS.md`. Files: `AGENTS.md`, `docs/agent-debugging.md`, `mkdocs.yml`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
 Risks and open questions:
 

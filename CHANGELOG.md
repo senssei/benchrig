@@ -10,6 +10,11 @@ versions may include breaking changes).
 - **Sandbox verdict integrity and trust boundary (P0).** Candidate stdout and stderr no longer determine coding benchmark verdicts or test counts. The sandbox now communicates test execution status out-of-band via a temporary result file verified with a secret token, enforces caller-provided total test counts, and treats premature exits (such as `SystemExit(0)`) or forged stdout markers as test failures.
 
 ### Changed
+- **Repo-quality hardening and documentation batch (Phase 12, items 12.1, 12.2, 12.9, 12.10).**
+  - Clarified sandbox execution model and residual risk: docstrings in `benchrig/core/sandbox.py` and documentation in `docs/benchmark-suites.md` and `docs/development.md` now define execution as process-group subprocess isolation rather than OS-level sandboxing, disclosing interpreter-level residual risks.
+  - Documented coding suite scope as Python-only across `README.md`, `docs/benchmark-suites.md`, and new `benchrig/data/scenarios/coding.README.md`.
+  - Added "last green run" status badge and workflow link to `README.md`.
+  - Streamlined `AGENTS.md` by moving the detailed runtime troubleshooting playbook (§1–§4) into `docs/agent-debugging.md` and registering it in `mkdocs.yml`.
 - **SDLC scaffolding now comes from `local-sdlc-kit`.** `scripts/sdlc_check.py`, `.agents/skills/sdlc*`,
   `.cursor/rules/sdlc.mdc` and `.githooks/pre-commit` were hand-maintained copies of the kit's templates
   (byte-identical apart from cosmetic type-hint formatting); they're now installed and refreshed via the
