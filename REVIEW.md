@@ -49,3 +49,9 @@ python3 scripts/sdlc_check.py --red <test-id>        # red-first
 git diff $(git merge-base <base> HEAD)               # what the reviewer sees (<base> from sdlc.toml)
 git config core.hooksPath .githooks                  # opt in to the pre-commit gate
 ```
+
+## Shared SDLC review — Codex
+
+Read `AGENTS.md`, `intent.md`, `spec.md` and the current phase in `plan.md`. Review the actual working diff, including untracked files, with independent context. Findings must name severity, file/line and a reproducible scenario. Record the exact gate command, exit status and any sandbox limitations; a blocked check is not a pass. Existing operator authorization covers the requested implementation; commits, pushes and releases need their own authorization.
+
+Project checks: Verify benchmark isolation and result provenance; runtime changes update CHANGELOG.md.

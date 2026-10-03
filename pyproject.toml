@@ -35,7 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8.0"]
 onnx-gpu = ["onnxruntime-genai-cuda"]
-dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine", "benchrig[charts]"]
+dev = ["pytest>=8.0", "ruff>=0.6", "build", "twine", "benchrig[charts]", "local-sdlc-kit @ git+https://github.com/senssei/local-sdlc-kit.git@v0.1.0"]
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
 
 [project.urls]
@@ -63,7 +63,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = [".venv", "models", "results"]
+extend-exclude = [".venv", "models", "results", "scripts/sdlc_check.py"]
 
 [tool.ruff.lint]
 select = [

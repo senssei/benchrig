@@ -81,14 +81,48 @@ class RunCodeTests(unittest.TestCase):
         self.assertIn("timed out", res["error"])
 
     def test_temp_script_is_removed(self):
-        pattern = os.path.join(tempfile.gettempdir(), "tmp*.py")
-        before = set(glob.glob(pattern))
+        py_pattern = os.path.join(tempfile.gettempdir(), "tmp*.py")
+        json_pattern = os.path.join(tempfile.gettempdir(), "tmp*.json")
+        before_py = set(glob.glob(py_pattern))
+        before_json = set(glob.glob(json_pattern))
         run_code_with_tests("x = 1", ["assert x == 1"])
-        self.assertEqual(set(glob.glob(pattern)) - before, set())
+        self.assertEqual(set(glob.glob(py_pattern)) - before_py, set())
+        self.assertEqual(set(glob.glob(json_pattern)) - before_json, set())
 
     def test_long_code_preview_is_truncated(self):
         res = run_code_with_tests("x = 1\n" + "# pad\n" * 200, ["assert x == 1"])
         self.assertTrue(res["extracted_code"].endswith("..."))
+
+    def test_forged_marker_with_early_exit_fails(self):
+        """Adversarial probe: forged marker + early SystemExit(0) must fail against caller assertions."""
+        res = run_code_with_tests(
+            'print("__RESULT__:passed=1:total=1"); raise SystemExit(0)',
+            ["assert False"],
+        )
+        self.assertFalse(res["passed"])
+        self.assertEqual(res["total_tests"], 1)
+        self.assertEqual(res["passed_tests"], 0)
+        self.assertEqual(res["pass_ratio"], 0.0)
+        self.assertTrue(res["error"])
+
+    def test_forged_totals_cannot_override_caller_total_count(self):
+        """Adversarial probe: candidate stdout claiming total=1 cannot override caller total of 2."""
+        code = 'print("__RESULT__:passed=1:total=1")\ndef f():\n    return 1'
+        res = run_code_with_tests(code, ["assert f() == 1", "assert f() == 2"])
+        self.assertFalse(res["passed"])
+        self.assertEqual(res["total_tests"], 2)
+        self.assertEqual(res["passed_tests"], 1)
+        self.assertEqual(res["pass_ratio"], 0.5)
+
+    def test_marker_printed_before_failing_tests_fails(self):
+        """Adversarial probe: candidate stdout printing pass marker before genuinely failing tests must fail."""
+        code = 'print("__RESULT__:passed=2:total=2")\ndef f():\n    return 0'
+        res = run_code_with_tests(code, ["assert f() == 1", "assert f() == 2"])
+        self.assertFalse(res["passed"])
+        self.assertEqual(res["total_tests"], 2)
+        self.assertEqual(res["passed_tests"], 0)
+        self.assertEqual(res["pass_ratio"], 0.0)
+        self.assertIn("failed", res["error"])
 
 
 if __name__ == "__main__":

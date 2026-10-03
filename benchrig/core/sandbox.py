@@ -1,7 +1,9 @@
 """Sandboxed Python code execution for verifying unit tests and coding tasks."""
 
+import json
 import os
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -47,8 +49,13 @@ def has_complete_code_block(text: str) -> bool:
     return re.search(r"```(?:python|py)?\n.*?```", answer, re.DOTALL | re.IGNORECASE) is not None
 
 
-def _build_test_script(solution_code: str, test_assertions: list[str]) -> str:
-    """Concatenate the model solution with a harness that runs every assertion independently."""
+def _build_test_script(
+    solution_code: str,
+    test_assertions: list[str],
+    result_path: str,
+    token: str,
+) -> str:
+    """Concatenate the model solution with a harness that runs every assertion independently and reports out-of-band."""
     lines = [
         "import sys",
         "import math",
@@ -61,6 +68,8 @@ def _build_test_script(solution_code: str, test_assertions: list[str]) -> str:
         solution_code,
         "",
         "# Automated Test Suite Runner:",
+        f"_RESULT_PATH = {repr(result_path)}",
+        f"_TOKEN = {repr(token)}",
         "passed_count = 0",
         f"total_count = {len(test_assertions)}",
         "failures = []",
@@ -71,17 +80,29 @@ def _build_test_script(solution_code: str, test_assertions: list[str]) -> str:
                 "try:",
                 f"    {assertion}",
                 "    passed_count += 1",
-                "except Exception as e:",
-                f"    failures.append(f'Test {idx + 1} failed: {{e}}')",
+                "except (Exception, SystemExit) as e:",
+                f"    failures.append(f'Test {idx + 1} failed: {{type(e).__name__}}: {{e}}')",
             ]
         )
     lines.extend(
         [
             "",
-            "print(f'__RESULT__:passed={passed_count}:total={total_count}')",
+            "try:",
+            "    with open(_RESULT_PATH, 'w', encoding='utf-8') as _rf:",
+            "        json.dump({",
+            "            'token': _TOKEN,",
+            "            'completed': True,",
+            "            'passed_count': passed_count,",
+            "            'total_count': total_count,",
+            "            'failures': failures,",
+            "        }, _rf)",
+            "except Exception as _e:",
+            "    print(f'Failed to write result file: {_e}', file=sys.stderr)",
+            "",
             "if failures:",
             "    print('__FAILURES__:' + ' | '.join(failures), file=sys.stderr)",
-            "    sys.exit(1 if passed_count == 0 else 0)",
+            "    sys.exit(1)",
+            "sys.exit(0)",
         ]
     )
     return "\n".join(lines)
@@ -148,31 +169,55 @@ def run_code_with_tests(
         execution_time_sec (float), error (str), extracted_code (str preview)
     """
     total_tests = len(test_assertions)
-    script = _build_test_script(solution_code, test_assertions)
+    token = secrets.token_hex(16)
+
+    script_path = None
+    result_path = None
 
     start_t = time.perf_counter()
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-        f.write(script)
-        script_path = f.name
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as sf:
+        script_path = sf.name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as rf:
+        result_path = rf.name
+        # Pre-seed result file with completed=False to detect incomplete runs or early exits
+        json.dump({"token": token, "completed": False}, rf)
 
     try:
+        script = _build_test_script(solution_code, test_assertions, result_path, token)
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(script)
+
         returncode, stdout, stderr = _run_isolated(script_path, timeout_sec)
         exec_time = time.perf_counter() - start_t
 
         passed_tests = 0
-        res_match = re.search(r"__RESULT__:passed=(\d+):total=(\d+)", stdout)
-        if res_match:
-            passed_tests = int(res_match.group(1))
-            total_tests = int(res_match.group(2))
+        completed = False
+        failures: list[str] = []
 
-        all_passed = passed_tests == total_tests and returncode == 0
+        try:
+            with open(result_path, encoding="utf-8") as rf:
+                result_data = json.load(rf)
+            if isinstance(result_data, dict) and result_data.get("token") == token:
+                completed = bool(result_data.get("completed", False))
+                if completed:
+                    passed_tests = int(result_data.get("passed_count", 0))
+                    failures = [str(x) for x in result_data.get("failures", [])]
+        except Exception:
+            completed = False
+
+        all_passed = total_tests > 0 and completed and passed_tests == total_tests and returncode == 0
 
         error_msg = ""
         if not all_passed:
-            if stderr:
+            if failures:
+                error_msg = " | ".join(failures)
+            elif stderr:
                 error_msg = stderr.strip().split("\n")[-1]
             elif returncode != 0:
                 error_msg = f"Process exited with code {returncode}"
+            else:
+                error_msg = "Execution terminated before test suite completed"
 
         return _sandbox_result(
             solution_code,
@@ -192,7 +237,9 @@ def run_code_with_tests(
     except Exception as e:  # sandbox must never crash the benchmark run
         return _sandbox_result(solution_code, total_tests=total_tests, error=str(e))
     finally:
-        try:
-            os.unlink(script_path)
-        except OSError:
-            pass
+        for p in (script_path, result_path):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass

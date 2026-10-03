@@ -6,6 +6,19 @@ versions may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- **Sandbox verdict integrity and trust boundary (P0).** Candidate stdout and stderr no longer determine coding benchmark verdicts or test counts. The sandbox now communicates test execution status out-of-band via a temporary result file verified with a secret token, enforces caller-provided total test counts, and treats premature exits (such as `SystemExit(0)`) or forged stdout markers as test failures.
+
+### Changed
+- **SDLC scaffolding now comes from `local-sdlc-kit`.** `scripts/sdlc_check.py`, `.agents/skills/sdlc*`,
+  `.cursor/rules/sdlc.mdc` and `.githooks/pre-commit` were hand-maintained copies of the kit's templates
+  (byte-identical apart from cosmetic type-hint formatting); they're now installed and refreshed via the
+  `local-sdlc-kit` dev dependency (`local-sdlc-kit-install --update`) instead of being hand-edited. `AGENTS.md`
+  gained the kit's `Development process` and `Process rules` sections (previously missing, so the gate wasn't
+  actually referenced from the process doc). `scripts/sdlc_check.py` is now excluded from `ruff` (`pyproject.toml`)
+  since the kit template targets an older typing style than this repo's lint config. No behavior change: the
+  gate's checks (`tests`, `lint`, `changelog`) and `sdlc.toml` are unchanged.
+
 ### Added
 
 - `eval_tok_sec_floored` boolean flag (Phase 10): `FoundryClient`/`PrismClient` set it on every
@@ -268,3 +281,8 @@ First PyPI release.
   (run `benchrig ...` instead of `python3 benchmark.py ...`).
 - The CUDA library bootstrap looks in the active environment's `site-packages` instead of a `.venv` next to the script.
 - `requirements*.txt` replaced by `pip install -e ".[dev]"`.
+
+## SDLC unification — 2026-10-02
+
+- Adopt the shared local-sdlc-kit runner and Codex workflow through AGENTS.md and .agents/skills, retaining project-specific checks in sdlc.toml.
+- Document independent review, existing operator authorization and truthful reporting of blocked checks.

@@ -43,3 +43,16 @@ BenchRig is a single CLI (`benchrig`) that, on a real workload (not perplexity),
 | Result runs are exportable as charts and CSV | `benchrig --chart path.png --csv path.csv` (or equivalents) produce files; covered by `tests/test_report_charts.py` and `tests/test_report_csv.py` (TODO §4 row 6) |
 | VRAM baseline is reported as `dirty` whenever foreign GPU processes are present | Field present in scorecards; covered by `tests/test_hardware.py` (TODO §2 row 2 / §4 row 5) |
 | Every change passes the SDLC gate before commit | `python3 scripts/sdlc_check.py` exits 0 in the session that wrote the change (sdlc.toml, REVIEW.md §A) |
+
+## Adversarial review — 2026-10-02
+
+Scope: targeted documentation and code review with selected adversarial probes; not an exhaustive audit. Probes used synthetic data and temporary directories. Findings below describe the reviewed working tree, including pre-existing uncommitted changes. Recording this review does not mean a fix was implemented or independently re-reviewed.
+
+- **Confirmed — forged coding verdict.** `benchrig/core/sandbox.py::run_code_with_tests` returned `passed=True`, 1/1 tests and `pass_ratio=1.0` for solution code `print("__RESULT__:passed=1:total=1"); raise SystemExit(0)` with the actual test `assert False`. The parent trusts a result marker emitted on stdout controlled by the candidate, including the candidate's supplied total.
+- Impact: an adversarial candidate can receive a perfect coding score without running the assertions; integrity of coding scores is not established against hostile output.
+- The subprocess is not an OS security boundary; this is already disclosed in `SECURITY.md` and is distinct from the forged-verdict bug.
+- No full benchmark or real-model evaluation was run in this review.
+
+### Codex SDLC — 2026-10-02
+
+Operator requested a shared SDLC across 01–08, adapted to Codex. Preserve project outcomes and constraints; use AGENTS.md, .agents/skills and explicit project gates. Existing authorization covers this migration; it does not approve adversarial remediation, commits, pushes or releases.

@@ -685,6 +685,7 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 - **Tool-calling suite.** Prism's `/v1/chat/completions` accepts `tools`/`tool_choice` and returns `tool_calls`
   (including the `d143788` fix that turns a template render failure into a `400` instead of silently dropping
   tools). Benchrig has no tool-use suite; would need scenario definitions with expected tool calls and a scorer.
+  Re-scoped as proposed Phase 13 (2026-10-01).
 - **`PRISM_THREADS` as a benchrig-managed setting.** Currently a `prism serve` environment variable the operator
   sets by hand (documented in Phase 4 item 4.3); benchrig could in principle report or vary it per run, but that
   is server configuration, not a client request parameter.
@@ -709,3 +710,240 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
   the user opts into per run, never automatic) before it gets anywhere near a `spec.md` entry. Not scheduled;
   revisit only after discussing the design with the operator, and only once Prism's side is committed and
   tagged.
+
+---
+
+## Phase 12: Repo-quality hardening from independent review
+
+Status: proposed (2026-09-24); surfaced from an independent review of the existing code/docs/tests; **pending operator approval** before any item moves from `proposed` to `approved` and `spec.md` is updated for it. Items are ordered roughly by impact-per-effort; the docs-only items (12.1, 12.2, 12.9, 12.10) can be batched and shipped first with no code churn, the rest need a real `spec.md` section before implementation.
+
+- [ ] <!-- Item 12.1: Sandbox docstring matches actual isolation level.
+         Files: benchrig/core/sandbox.py (module docstring + `run_code_with_tests`/`_run_isolated` docstrings).
+         No new test; documentation-only correction. Current wording says "Sandboxed Python code execution";
+         `_run_isolated` already says "Run a script in its own process group" (accurate). Downscope the
+         module-level wording to "isolated subprocess / process-group isolation" and add a one-line note
+         about the residual risk: a generated Python file can `import subprocess`/`socket`/`ctypes`; we
+         rely on the prompt's "respond only with Python" instruction, not OS-level sandboxing. CLI `--help`
+         text and any README/architecture prose that says "isolated sandbox" should be tightened in the
+         same pass.
+         Status: proposed; docs-only. -->
+
+- [ ] <!-- Item 12.2: Document the coding suite is Python-only.
+         Files: docs/benchmark-suites.md (Coding Suite section), README.md (Key Features table + "Customizing
+                Scenarios" section), benchrig/data/scenarios/coding.json (top-of-file comment in a sibling
+                `coding.README.md`, since JSON has no comment syntax).
+         No new test; docs-only. Add one sentence in each location: "Today the coding suite only exercises
+         Python; JS/TS scenario packs are not bundled." A `coding.README.md` next to `coding.json` becomes
+         the canonical place to list which language flavours are/aren't supported.
+         Status: proposed; docs-only. -->
+
+- [ ] <!-- Item 12.3: Numeric-equivalence layer for reasoning ground truth.
+         Files: benchrig/core/reasoning_parser.py (extend `evaluate_reasoning_answer` with a numeric
+                equivalence path), benchrig/data/scenarios/reasoning.json (mark which scenarios opt in via
+                an `evaluator: "numeric"` field), tests/test_reasoning_evaluator.py (new) or extend existing
+                reasoning tests.
+         Test: tests/test_reasoning_evaluator.py::NumericEquivalenceTests — model answer "42" matches
+               expected "42", "42.0", and "  42  " (whitespace-trimmed); "forty-two" matches only when the
+               scenario explicitly opts in to text-numeric normalization; "Forty-Two" (capitalization)
+               does not; non-numeric ground truth (e.g. word puzzles) keeps the current string/regex path
+               unchanged. Spec to be written before implementation per `plan.md` header.
+         Status: proposed. -->
+
+- [ ] <!-- Item 12.4: Split `benchrig/cli.py` into per-command modules.
+         Files: benchrig/cli.py (becomes a thin dispatcher: argument parsing + subcommand routing),
+                benchrig/cli/__init__.py (new, re-exports `main` for `pyproject.toml`'s
+                `benchrig = "benchrig.cli:main"` entry point), benchrig/cli/check.py (new — `--check` and
+                `--runtime` diagnostics), benchrig/cli/run.py (new — main benchmark orchestration),
+                benchrig/cli/report.py (new — `--csv`/`--chart`/markdown writers).
+         Test: existing CLI tests must keep passing unchanged (test_benchmark_cli.py,
+               test_cli_logging.py, test_cli_report_flags.py, test_cli_capacity_skip_notice.py);
+               add tests/test_cli_dispatch.py asserting that `benchrig.cli:main` routes `--check`,
+               a benchmark run, and `--csv`/`--chart` to the right subcommand module and that
+               `benchrig --help` renders identically to today.
+         Risk: `pyproject.toml` `benchrig = "benchrig.cli:main"` must keep resolving; this is a
+               package restructure, not a rename.
+         Status: proposed. -->
+
+- [ ] <!-- Item 12.5: Add `setup_linux.sh` / `setup_wsl.sh` mirroring `setup_mac.sh`.
+         Files: setup_linux.sh (new), setup_wsl.sh (new — WSL guard, then sources setup_linux.sh).
+         No new test (script is exercised manually; CI runs the lint+test+build gate, not shell
+         bootstrap). The script must: detect WSL vs native Linux via `/proc/version` and `uname -r`,
+         verify NVIDIA via `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` on WSL), check Python ≥ 3.10,
+         create `.venv`, `pip install -e ".[dev]"`, run `benchrig --check`, and `exit 1` on any step
+         that fails. README "Option B" will reference it as the bootstrap path.
+         Status: proposed; operator-side script (similar to Phase 3 — operator runs it once per host). -->
+
+- [ ] <!-- Item 12.6: Surface composite weights in `LATEST_SUMMARY.md`.
+         Files: benchrig/reporting/markdown.py (render an active-weights block at the top of the report,
+                sourced from the same config dict the runner uses), benchrig/core/runner.py (confirm
+                weights resolve from `config["benchmark"]["composite_weights"]` with
+                `DEFAULT_COMPOSITE_WEIGHTS` as the fallback; no behaviour change expected).
+         Test: tests/test_report_markdown.py::CompositeWeightsHeaderTests — generate a report with
+               default weights and assert the markdown contains a `**Composite weights:** coding=0.40,
+               reasoning=0.30, performance=0.30` block at the top; generate a report with overridden
+               weights (`{"coding": 0.5, "reasoning": 0.3, "performance": 0.2}`) and assert the block
+               reflects the override; generate a report with weights omitted from config and assert the
+               default fallback is shown.
+         Status: proposed. -->
+
+- [ ] <!-- Item 12.7: Either auto-generate the analysis reports or move them under `docs/analysis/`.
+         Files: benchrig/reporting/markdown.py (add `generate_run_analysis(scorecard, anomalies)` and
+                `generate_anomaly_verification(scorecard)` writers that produce the content currently
+                hand-written in results/RUN_ANALYSIS.md and results/ANOMALY_VERIFICATION.md),
+                benchrig/cli.py (call them after each run when `--analysis-dir` is set),
+                benchrig/reporting/common.py (shared anomaly detector). Alternative direction (operator
+                chooses during spec): move the existing hand-written files to docs/analysis/<date>/ and
+                stop pretending they are machine-generated.
+         Test: tests/test_report_analysis.py (new) — given a synthetic scorecard with one anomalous
+               model (composite score 3 standard deviations from the mean), the generated analysis
+               markdown mentions that anomaly by run_id and shows the deviation value; given a clean
+               scorecard, the "anomalies" section is empty.
+         Open question: needs operator decision on generate-vs-move before spec.
+         Status: proposed; gated on operator direction. -->
+
+- [ ] <!-- Item 12.8: Pin the `extract_python_code` single-vs-multi-fence dedent behaviour.
+         Files: tests/test_sandbox.py (extend).
+         Test: tests/test_sandbox.py::ExtractPythonCodeDedentTests — three regression cases:
+               (a) a single ```python fence whose lines carry a uniform bullet-list margin is dedented
+                   so the extracted solution is valid Python (`IndentationError` would otherwise fire on
+                   later same-level statements);
+               (b) two fences where the second is a class-method continuation at the same indent as
+                   the first is NOT dedented (continuation preserved);
+               (c) zero fences returns the raw stripped text.
+               Asserts lock the comment in `benchrig/core/sandbox.py:30-32` so future refactors don't
+               quietly break it.
+         Status: proposed; test-only. -->
+
+- [ ] <!-- Item 12.9: Add a "last green CI run" indicator to the README.
+         Files: README.md (add one line below the CI badge linking to the latest successful run),
+                .github/workflows/ci.yml (no change needed if using shields.io + GitHub Actions' built-in
+                last-success badge URL; otherwise add a step that writes a `last-green.json` artifact).
+         No new test (CI + docs).
+         Status: proposed; docs/CI-only. -->
+
+- [ ] <!-- Item 12.10: Slim `AGENTS.md` and move the operational playbook to `docs/`.
+         Files: AGENTS.md (keep the top-level rules: SDLC entry, agent debugging & troubleshooting playbook
+                summary, mandatory verification gate; point to docs/agent-debugging.md for the full
+                playbook), docs/agent-debugging.md (new — content moved verbatim from the current
+                AGENTS.md §1–§4, the runtime-by-runtime diagnostic routine).
+         No new test (docs-only). Verify all cross-references from AGENTS.md resolve to
+         docs/agent-debugging.md and that the verification gate command at the bottom of AGENTS.md still
+         works unchanged.
+         Status: proposed; docs-only. -->
+
+Risks and open questions:
+
+- Items 12.4 and 12.7 are the largest in scope. Defer them if the operator wants the quick wins (12.1, 12.2, 12.6, 12.8, 12.9, 12.10) shipped first.
+- Item 12.7 needs a direction decision (auto-generate vs. move under `docs/analysis/`) before it can be specified properly.
+- Items 12.1, 12.2, 12.9, 12.10 are docs-only and can be approved in a single batch with no code or test churn — good candidate for the next sprint's "boring but valuable" work.
+- Per `plan.md` header rule, **no item may start implementation until `spec.md` is updated** for the behavior it adds and the operator approves the item. The Phase 11 pattern (spec section first, then per-item approve-and-implement) applies.
+
+---
+
+## Phase 13: Tool-use suite (proposed)
+
+Status: proposed (2026-10-01); **pending operator approval** before any item moves to `approved` and `spec.md` is updated.
+Supersedes the "Tool-calling suite" backlog bullet. Motivation: `~/06-dark-factory` may evolve into a tool-using harness
+(with `~/07-rag` as a `rag_search` tool); whether the local models can drive one is unmeasured.
+
+Evidence from a throwaway probe, 2026-10-01 (Ollama `/api/chat`, `tools` set, `temperature 0`, 3 prompts per model, **n=1,
+indicative only, not a benchmark**; script was not kept in the repo):
+
+| Model | select `rag_search` | select `read_file` | "no tool needed" (2+2) | Notes |
+|---|---|---|---|---|
+| `llama3.1:8b` | structured call | structured call | no call, but refused instead of answering | `k` returned as string `"1"` (schema says integer) |
+| `mistral:7b` | structured call | structured call | **called `read_file` wrongly** | over-calls |
+| `phi4-mini` | structured call | structured call | no call, but refused instead of answering | |
+| `qwen2.5-coder:7b` / `:14b` | **JSON as plain text, no `tool_calls`** | same | answered `4` | right intent, wrong channel (template/parse issue); a client must not count this as a pass without a rule |
+| `gemma3:12b` | HTTP 400 "does not support tools" | same | same | not usable for tools on Ollama |
+
+Takeaways to design against: (a) "emitted valid JSON in `content`" and "returned structured `tool_calls`" are different
+outcomes and must be scored separately; (b) abstention (no call when none is needed) fails in both directions; (c) argument
+types drift; (d) unsupported-tools models must be reported as `unsupported`, not as `0%`.
+
+- [ ] <!-- Item 13.1: Scenario format for tool use.
+         Files: benchrig/data/scenarios/tool_use.json (new), docs/scenarios.md.
+         Fields per scenario: `id`, `name`, `prompt`, `tools` (OpenAI-style function schemas), `check_type: "tool_call"`,
+         `expect` = {`tool`: name | null (null = must abstain), `args`: {key: exact value | {"type": ..., "contains": ...}}}.
+         Categories (>= 3 scenarios each): single-tool selection among 2-4 tools; argument extraction with typed params
+         (integer/enum/array); abstention (no tool applicable, incl. a plain-answer question); multi-step (call, then a
+         second call after a supplied tool result); Polish-language prompts (reuse `polish.json` conventions);
+         retrieval-shaped (`rag_search(query, k)`, `read_file(path)`, `grep(pattern, path)`) matching 06/07's planned tools.
+         Test: JSON schema/loader test that every scenario is well-formed (hermetic).
+         Status: proposed. -->
+
+- [ ] <!-- Item 13.2: Client support for `tools` and `tool_calls`.
+         Files: benchrig/core/client.py (Ollama), benchrig/core/runtimes.py (Prism OpenAI-compatible path),
+                benchrig/core/runner.py. Not ONNX-direct unless it exposes a tool channel (else mark `unsupported`).
+         Parse structured `tool_calls` from both response shapes (Ollama `message.tool_calls[].function.arguments` is an
+         object; OpenAI/Prism returns `arguments` as a JSON string). Record separately: `structured_call`, `json_in_content`
+         (detected, never counted as a pass), `refusal_text`, HTTP 400 "does not support tools" -> `unsupported`.
+         Test: fake-server tests for both shapes, the content-JSON case, the 400 case and a malformed-arguments case.
+         Status: proposed. -->
+
+- [ ] <!-- Item 13.3: Scorer.
+         Files: benchrig/core/runner.py (or a new scorer module), tests/.
+         Per scenario: pass requires correct tool name AND all expected args matching AND correct types. Aggregate metrics
+         per model: selection accuracy, argument accuracy, abstention rate (correct no-call), false-call rate, structured-
+         call rate, and latency (reuse TTFT/decode fields). Multi-step: score each turn, fail on first wrong turn.
+         Use repeated runs (`--repeat`, default 3 at temperature 0 and a nonzero-temperature variant) and report
+         pass counts, not a single flaky boolean.
+         Test: table-driven scorer tests incl. string-vs-integer args, extra args, reordered args.
+         Status: proposed. -->
+
+- [ ] <!-- Item 13.4: Reporting and a `tool_use` suite flag.
+         Files: benchrig/reporting/ (markdown, CSV, charts), benchrig/cli.py, docs/benchmark-suites.md, docs/cli.md.
+         New suite name `tool_use`; leaderboard columns for the metrics above; `unsupported` shown as `n/a`.
+         Test: report-rendering tests with fixture records (hermetic).
+         Status: proposed. -->
+
+- [ ] <!-- Item 13.5: Decision gate for the 06 harness (documentation, not code).
+         Files: docs/ (short results note after a real run).
+         Run the suite on the installed models via Ollama and Prism; record which, if any, clear an agreed threshold
+         (to be set by the operator before the run, e.g. selection >= 90% and false-call <= 10%). Feeds the go/no-go for a
+         tool-using `~/06-dark-factory` harness and `~/07-rag` as a tool.
+         Status: proposed; needs real hardware (opt-in marker like the other live tests). -->
+
+Risks and open questions:
+
+- Ollama's chat template, not the model, may decide whether `tool_calls` is populated (the qwen2.5-coder case). Results are therefore per (model, runtime) pair; do not generalize a model's score across runtimes.
+- Thresholds in 13.5 are an operator decision; the probe above is too small to set them.
+- Scope: this measures tool-calling reliability, not retrieval quality. An embedding/retrieval suite stays in the Backlog.
+- Per the `plan.md` header rule, **no item may start implementation until `spec.md` is updated** and the operator approves it.
+- `plan.md` already had uncommitted Phase 12 edits when this phase was added; they are unrelated and untouched.
+
+
+## Adversarial review follow-up — 2026-10-02
+
+Status: implemented, verified green, and independently reviewed (clean verdict, no findings). Trust boundary defined in `spec.md` (I10), regression coverage in `tests/test_sandbox.py`, out-of-band JSON result file with secret token in `benchrig/core/sandbox.py`. Ready for operator decision.
+
+- [x] **P0 — verdict integrity:** define the trust boundary in `spec.md`; revise `benchrig/core/sandbox.py` so candidate stdout cannot determine the verdict or expected test count. Add regression coverage in `tests/test_sandbox.py` for forged markers plus early successful exit, forged totals, and a marker printed before genuinely failing tests. Every case must fail against the caller's original assertions; rerun the SDLC gate and obtain independent review before closing.
+
+
+## Workspace SDLC unification — 2026-10-02
+
+Status: migration implemented under operator authorization; validation recorded below. Preserve earlier plan entries and uncommitted work.
+
+- [x] U1. Install/update kit-owned runner, skills, hook and Cursor rule; normalize the process in `AGENTS.md` and harness adapters. Evidence: `.sdlc/test_unification.py` compares all eight projects to the kit.
+- [x] U2. Configure `sdlc.toml` without dropping existing checks; preserve project-specific helpers and red-mode error handling. Evidence: migrated gate-helper tests where present, gate CLI smoke and configuration validation.
+- [x] U3. Update process references, `REVIEW.md`, changelog and documentation mirrors where applicable. Run the full project gate; record pass/fail/skip evidence and obtain independent review. No checkbox closes on partial checks alone.
+
+### Codex migration evidence — 2026-10-02
+
+Status: shared process, kit distribution, project profiles, Codex adapters, review policy and CI implemented under the operator request. Existing product-version CI remains. Workspace distribution checks: 2 passed. Independent read-only review found two migration defects (legacy Python bootstrap and lint comparison-base forwarding); both reproduced red, fixed and re-reviewed with no new findings. Actual Python 3.8/3.9 was unavailable; bootstrap regression uses simulated old builtin typing behavior.
+
+Verification: Gate exit 0: 376 passed, 4 skipped; lint, format, changelog PASS.
+
+Unverified gates stay open; no sandbox bypass or skipped test replacement. Earlier adversarial remediation remains in its own plan phase.
+
+## Phase 14: Interpretable benchmark comparisons — scope
+
+Status: scope recorded at the operator's request on 2026-10-03 ("dodaj do scope-a"); implementation not started or authorized. Planned behavior is in `spec.md`. Next: inspect measurement/reporting code and tests, define telemetry and cache protocols, then obtain implementation authorization. Existing intent and invariants remain unchanged.
+
+- [ ] **14.1 Execution placement and CPU fallback:** capture requested/observed provider/device and expose fallback in reports. Expected files: `benchrig/core/client.py`, `benchrig/core/onnx_client.py`, `benchrig/core/runtimes.py`, `benchrig/core/runner.py`, `benchrig/reporting/`, `docs/runtimes.md`. Verification: client fixtures for fallback and unknown placement; report fixtures that display both visibly.
+- [ ] **14.2 Timing breakdown:** report TTFT, prefill and decode independently with provenance and unavailable/estimated states. Expected files: runtime clients, `benchrig/core/runner.py`, `benchrig/reporting/`, `tests/test_measurement_methodology.py`, `tests/test_report_markdown.py`, `tests/test_report_csv.py`. Verification: synthetic timing records prove the three metrics remain distinct across exports.
+- [ ] **14.3 Peak RSS at fixed context:** define process coverage and sampling, record workload parameters and report RSS alongside platform-specific GPU/UMA telemetry. Expected files: `benchrig/core/hardware.py`, `benchrig/core/runner.py`, `benchrig/reporting/`, `tests/test_hardware.py`, `docs/hardware-telemetry.md`. Verification: controlled sampler fixtures prove peak selection, process coverage and missing-data handling; opt-in hardware runs validate sampling limits.
+- [ ] **14.4 Warm-up and KV reuse protocol:** separate cold runs, warm model/runtime runs and verified prefix-cache reuse with repeated identical workloads. Expected files: runtime clients, `benchrig/core/runner.py`, `benchrig/cli.py`, `tests/test_measurement_methodology.py`, `docs/tutorials/cross-engine-benchmarking.md`. Verification: fake-client runs prove warm-ups are excluded from measured aggregates and unsupported/unverified reuse is labelled; opt-in runs validate backend cache behavior.
+- [ ] **14.5 Executable-test evidence:** show pass counts/denominators and distinguish task success from assertion success, alongside per-task evidence and supplementary aggregate scores. Expected files: `benchrig/core/runner.py`, `benchrig/reporting/`, `tests/test_report_markdown.py`, `tests/test_report_csv.py`, `docs/benchmark-suites.md`, `CHANGELOG.md`. Verification: fixture reports cover differing denominators, failures and truncation without implying unverified percentages. Dependency: close the P0 verdict-integrity follow-up before claiming trustworthy coding comparisons.
+
+Open design decisions: exact fixed-context workload, daemon/process RSS attribution, backend cache observability and repeat/warm-up configuration. Resolve these in the detailed spec before code; no live benchmarks were run to add this scope.

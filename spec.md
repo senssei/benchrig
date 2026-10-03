@@ -31,11 +31,13 @@ Tests and reviews cite these by number. Changing one needs operator approval.
 | I7 | `PrismClient.unload_model(model)` always sends `POST /v1/unload` to the Prism server and always returns `True`; a failing or missing endpoint is logged, never raised, so `evaluate_model`'s per-model teardown never fails a run because of it. |
 | I8 | `FoundryClient.generate()` forwards `top_k`, `repetition_penalty` and `stop` from `options` verbatim into the `/v1/chat/completions` payload when present, and omits them when absent; a malformed value (from these or the pre-existing `temperature`/`max_tokens`/`top_p`/`seed` options) fails that one scenario via `_failure_result`, never the whole run. |
 | I9 | `FoundryClient.generate()` reads `reasoning_content` from the response (streaming delta or non-streaming message) and sets `thinking_chars` on the result when non-empty; `ttft_sec` reflects the first token of either kind and `answer_ttft_sec` the first content token (omitted when no content token arrives). Behavior for a response with no `reasoning_content` is unchanged. |
+| I10 | In the coding benchmark sandbox, candidate stdout and stderr never determine the test verdict or expected test count. Expected test count is strictly `len(test_assertions)`. Test execution status is communicated out-of-band (via a dedicated temporary result file verified with a secret token), and any premature process termination or forged markers fail against the caller's assertions. |
 
 ## 3. Failure modes (current behavior)
 
 | Situation | Behavior | Where specified |
 |---|---|---|
+| Candidate code in coding sandbox attempts to forge test verdict or exits early (`SystemExit(0)`, forged stdout markers, forged totals) | The sandbox ignores candidate stdout for verdict determination, enforces `total_tests = len(test_assertions)`, requires out-of-band completion evidence, and marks `passed=False` with error detail when assertions fail or did not run (I10) | `benchrig/core/sandbox.py` `run_code_with_tests()` |
 | `--chart path.png` requested but `matplotlib` is not installed | CLI prints a clear error and exits non-zero without producing a half-written PNG | `benchrig/reporting/charts.py` |
 | `--csv path.csv` path is not writable | CLI prints a clear error and exits non-zero; no partial CSV left on disk | `benchrig/reporting/csv_export.py` |
 | `--runtime onnx-gpu` selects a `generic-cpu` execution provider on a CUDA host | CLI prints a one-line warning naming the model and the measured slowdown ("generic-cpu on CUDA: 2–22 tok/s for qwen; Phi-3.5-mini may not finish in 5 min"); the run continues and exits 0 (I4) | `benchrig/core/runtimes.py` `warning_for_provider()` |
@@ -327,3 +329,41 @@ no `run.*` events.
 OpenTelemetry OTLP export, `trace_id`/`span_id` propagation, integration with the
 external `~/03-foundy-local` server. Re-scope into a numbered phase when needed.
 
+
+## Adversarial remediation: Sandbox verdict integrity and trust boundary
+
+- **Trust boundary:** In `benchrig/core/sandbox.py` (`run_code_with_tests`), candidate code and any output emitted on `stdout` or `stderr` is untrusted data. Candidate output MUST NEVER determine the test verdict (`passed`), `passed_tests`, or `total_tests`.
+- **Expected test count:** `total_tests` is strictly derived from the caller's test assertions list (`len(test_assertions)`). The runner never allows candidate code or child process output to override or forge `total_tests`.
+- **Out-of-band result communication:** The test execution harness writes execution results (whether all assertions completed, number of assertions passed, failure messages) via a dedicated temporary result file verified with a secret token, completely separate from candidate `stdout`.
+- **Early exit and failure behavior:** If candidate code terminates early (e.g. `raise SystemExit`, `sys.exit(0)`, `os._exit`, syntax error, uncaught exception) before all assertions in `test_assertions` have been executed, or fails to produce the expected out-of-band result verification, the verdict is marked as `passed=False`, with `total_tests` matching the caller's count and `passed_tests` reflecting only assertions genuinely executed and passed.
+- **Pre-emitted or forged markers:** Any string printed to `stdout` (such as `__RESULT__:passed=...`) by candidate code is ignored by the parent evaluator. All tests must execute against the caller's original assertions.
+
+
+## Workspace SDLC unification — 2026-10-02
+
+Scope authorized by the operator's request to unify SDLC across projects 01–08. The workflow is intent → spec → plan → test (red) → code → independent review. Existing domain invariants and adversarial findings remain in force.
+
+- Kit-owned runner, five skills, pre-commit hook and Cursor rule come from the sibling `local-sdlc-kit`; install/update with its installer, never maintain project forks of those files.
+- `AGENTS.md` carries the same kit process section in every project; project-specific language, hardware, privacy and execution rules stay outside that section. Harness adapters point to `AGENTS.md`.
+- `sdlc.toml` declares the actual checks, red command, timeout and changelog paths. The public gate command is `python3 scripts/sdlc_check.py`; selection uses `--only NAME`, red uses `--red ID`. Gate tooling requires Python 3.11+ independently of product runtime support.
+- Migration preserves existing verification controls. Project-specific changed-line lint in Prism remains a separate helper; common runner logic must not absorb language-specific behavior. Pytest collection errors and missing unittest ids must be NOT RED.
+- Missing/invalid gate configuration or unknown checks fail explicitly. Missing optional documentation tooling may only skip where the prior gate allowed it. A skipped or unavailable check is reported, not presented as verified.
+- 01 gains static Python compilation and JSON/configuration checks; live Windows probes remain manual. 04 gains its existing Astro build as the gate; neither project claims a behavioral test suite that does not exist. Their red interfaces are configured for future unittest/Node test ids and reject missing tests.
+- Workspace consistency checks compare installed kit-owned files and process sections with the kit source. Project check sets stay distinct; no common lowest-denominator test suite is imposed.
+- Implementation status is recorded separately from verification. Plan boxes remain open until the complete project gate passes; unrelated pre-existing failures are preserved and reported. No commits, pushes, real engine calls or automatic hook activation are part of this change.
+
+### Codex execution contract
+
+Codex reads project AGENTS.md and routes through `.agents/skills/sdlc`. A natural-language request is sufficient; `$sdlc` is an explicit entry. Gate checks receive the selected comparison base through `SDLC_BASE`. Full `scripts/sdlc_check.py` is also configured in `.github/workflows/sdlc.yml`; existing CI jobs remain. A sandbox-blocked check remains unverified. Operator authorization persists within the requested scope.
+
+## Planned behavior: interpretable benchmark comparisons
+
+Scope added at the operator's request on 2026-10-03; implementation is not authorized by this scope-only request.
+
+- Report the observed execution provider/device and any CPU fallback prominently alongside performance results. Distinguish requested from observed placement; unavailable evidence is `unknown`, not assumed GPU execution. Cover Ollama, Foundry Local, direct ONNX Runtime GenAI and Prism on supported platforms.
+- Separate TTFT, prefill duration/throughput and decode duration/throughput, with units and measurement provenance. Estimated or unavailable measurements must be labelled; TTFT must not be treated as prefill duration.
+- Add peak RSS at a fixed, recorded context/workload. Define sampled processes, sampling method, prompt token count, context limit and output budget before implementation. Report GPU/UMA memory separately with platform limitations; RSS alone is not total GPU memory usage.
+- Compare cold and warm model/runtime runs separately from KV-prefix reuse. Repeat identical workloads after warm-up and, where supported, after populating a reusable KV prefix. Record cache mode, reused prefix length and warm-up protocol; unsupported or unverifiable reuse must not be labelled a warm-cache measurement.
+- Surface executable coding-test pass counts and denominators, task-level success and test-level success separately, with identical tasks and verdict rules across comparisons. The motivating `100% vs 17.6%` example is not a verified BenchRig result. Preserve failed/truncated outcomes and link to per-task evidence; aggregate scores remain supplementary.
+
+Normative documentation to update during implementation: `docs/benchmark-suites.md`, `docs/hardware-telemetry.md`, `docs/runtimes.md` and `docs/tutorials/cross-engine-benchmarking.md`. Coding comparisons depend on resolving the recorded verdict-integrity finding before claiming trustworthy results.
