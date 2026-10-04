@@ -1,0 +1,1457 @@
+[
+  {
+    "id": "tool_selection_1",
+    "name": "Selection 1",
+    "category": "selection",
+    "prompt": "Read the file notes1.txt using the appropriate tool. Do not search.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notes1.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_arguments_1",
+    "name": "Arguments 1",
+    "category": "arguments",
+    "prompt": "Select items [1, 4] in safe mode.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "select_items",
+          "description": "Return simulated select_items data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "safe"
+                ]
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "mode",
+              "ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "select_items",
+          "args": {
+            "mode": "safe",
+            "ids": [
+              1,
+              4
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_abstention_1",
+    "name": "Abstention 1",
+    "category": "abstention",
+    "prompt": "What is 1 + 1? Answer only with the number; no tool is needed.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": null,
+          "args": {},
+          "answer": "2"
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_multistep_1",
+    "name": "Multistep 1",
+    "category": "multistep",
+    "prompt": "Read manifest1.txt. Then read the single file named in its contents. Use one call at each step.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "manifest1.txt"
+          }
+        },
+        "tool_result": "target1.txt"
+      },
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "target1.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_polish_1",
+    "name": "Polish 1",
+    "category": "polish",
+    "prompt": "Odczytaj plik notatki1.txt przy użyciu odpowiedniego narzędzia. Nie wyszukuj dokumentów.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notatki1.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_retrieval_1",
+    "name": "Retrieval 1",
+    "category": "retrieval",
+    "prompt": "Search documents for the exact query \"cache policy 1\" and return 1 results.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "rag_search",
+          "args": {
+            "query": "cache policy 1",
+            "k": 1
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_selection_2",
+    "name": "Selection 2",
+    "category": "selection",
+    "prompt": "Read the file notes2.txt using the appropriate tool. Do not search.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notes2.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_arguments_2",
+    "name": "Arguments 2",
+    "category": "arguments",
+    "prompt": "Select items [2, 5] in safe mode.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "select_items",
+          "description": "Return simulated select_items data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "safe"
+                ]
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "mode",
+              "ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "select_items",
+          "args": {
+            "mode": "safe",
+            "ids": [
+              2,
+              5
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_abstention_2",
+    "name": "Abstention 2",
+    "category": "abstention",
+    "prompt": "What is 2 + 2? Answer only with the number; no tool is needed.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": null,
+          "args": {},
+          "answer": "4"
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_multistep_2",
+    "name": "Multistep 2",
+    "category": "multistep",
+    "prompt": "Read manifest2.txt. Then read the single file named in its contents. Use one call at each step.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "manifest2.txt"
+          }
+        },
+        "tool_result": "target2.txt"
+      },
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "target2.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_polish_2",
+    "name": "Polish 2",
+    "category": "polish",
+    "prompt": "Odczytaj plik notatki2.txt przy użyciu odpowiedniego narzędzia. Nie wyszukuj dokumentów.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notatki2.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_retrieval_2",
+    "name": "Retrieval 2",
+    "category": "retrieval",
+    "prompt": "Search documents for the exact query \"cache policy 2\" and return 2 results.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "rag_search",
+          "args": {
+            "query": "cache policy 2",
+            "k": 2
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_selection_3",
+    "name": "Selection 3",
+    "category": "selection",
+    "prompt": "Read the file notes3.txt using the appropriate tool. Do not search.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notes3.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_arguments_3",
+    "name": "Arguments 3",
+    "category": "arguments",
+    "prompt": "Select items [3, 6] in safe mode.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "select_items",
+          "description": "Return simulated select_items data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "safe"
+                ]
+              },
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "mode",
+              "ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "select_items",
+          "args": {
+            "mode": "safe",
+            "ids": [
+              3,
+              6
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_abstention_3",
+    "name": "Abstention 3",
+    "category": "abstention",
+    "prompt": "What is 3 + 3? Answer only with the number; no tool is needed.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": null,
+          "args": {},
+          "answer": "6"
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_multistep_3",
+    "name": "Multistep 3",
+    "category": "multistep",
+    "prompt": "Read manifest3.txt. Then read the single file named in its contents. Use one call at each step.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "manifest3.txt"
+          }
+        },
+        "tool_result": "target3.txt"
+      },
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "target3.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_polish_3",
+    "name": "Polish 3",
+    "category": "polish",
+    "prompt": "Odczytaj plik notatki3.txt przy użyciu odpowiedniego narzędzia. Nie wyszukuj dokumentów.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "read_file",
+          "args": {
+            "path": "notatki3.txt"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool_retrieval_3",
+    "name": "Retrieval 3",
+    "category": "retrieval",
+    "prompt": "Search documents for the exact query \"cache policy 3\" and return 3 results.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "read_file",
+          "description": "Return simulated read_file data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "rag_search",
+          "description": "Return simulated rag_search data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "k": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query",
+              "k"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "grep",
+          "description": "Return simulated grep data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pattern",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "options": {
+      "temperature": 0,
+      "seed": 42,
+      "num_predict": 512
+    },
+    "check_type": "tool_call",
+    "turns": [
+      {
+        "expect": {
+          "tool": "rag_search",
+          "args": {
+            "query": "cache policy 3",
+            "k": 3
+          }
+        }
+      }
+    ]
+  }
+]

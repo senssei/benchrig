@@ -29,6 +29,7 @@ from rich.progress import (
 # the patch effective).
 import benchrig.cli as _cli_pkg
 from benchrig.cli._common import (
+    DEFAULT_SUITES,
     SUITES,
     is_ollama,
     load_scenario_file,
@@ -74,10 +75,12 @@ def evaluate_model(
         _cli_pkg._lookup("console").print(f"  [dim]GPU memory in use before loading: {baseline_mb:.0f} MB[/]")
 
     _cli_pkg._lookup("console").print(f"  [dim]Ensuring model {model} is loaded ({client.display_name})...[/]")
-    client.load_model(model)
+    tool_only = suites == ["tool_use"]
+    if not tool_only or getattr(client, "native_tool_channel", False):
+        client.load_model(model)
 
     rt_config = config.get(runtime_name, {})
-    if rt_config.get("warmup", True):
+    if not tool_only and rt_config.get("warmup", True):
         runner.warmup(model)
 
     results: list[dict[str, Any]] = []
@@ -189,7 +192,7 @@ def run_benchmarks(
         specs = _cli_pkg._lookup("get_system_specs")(client=clients["ollama"])
         _cli_pkg._lookup("display_system_banner")(specs)
 
-        suites_to_run = list(SUITES) if suite == "all" else [suite]
+        suites_to_run = list(DEFAULT_SUITES) if suite == "all" else [suite]
         scenarios_dir = _cli_pkg._lookup("resolve_scenarios_dir")(args.scenarios_dir)
         scenarios = {name: load_scenario_file(os.path.join(scenarios_dir, SUITES[name][0])) for name in suites_to_run}
 
@@ -222,7 +225,8 @@ def run_benchmarks(
                 if not client:
                     _cli_pkg._lookup("console").print(f"[bold red]Unknown runtime: {runtime_name}[/]")
                     continue
-                if not client.is_reachable():
+                adapter_unsupported = suite == "tool_use" and not getattr(client, "native_tool_channel", False)
+                if not adapter_unsupported and not client.is_reachable():
                     _cli_pkg._lookup("console").print(
                         f"[bold yellow]⚠ Skipping {runtime_name}:{model} — {client.display_name} server is not responding.[/]"
                     )
@@ -254,10 +258,11 @@ def run_benchmarks(
         _cli_pkg._lookup("display_leaderboard")(scorecards, specs=specs)
         _cli_pkg._lookup("display_token_savings")(scorecards)
 
-        has_ollama = any(is_ollama(sc) for sc in scorecards)
-        has_other = any(not is_ollama(sc) for sc in scorecards)
+        legacy_cards = [sc for sc in scorecards if sc.get("composite_score") is not None]
+        has_ollama = any(is_ollama(sc) for sc in legacy_cards)
+        has_other = any(not is_ollama(sc) for sc in legacy_cards)
         if has_ollama and has_other:
-            _cli_pkg._lookup("show_1to1_comparison")(scorecards, all_results, specs, args.output_dir)
+            _cli_pkg._lookup("show_1to1_comparison")(legacy_cards, all_results, specs, args.output_dir)
 
         md_report_path, raw_json_path = _cli_pkg._lookup("save_outputs")(
             args.output_dir,

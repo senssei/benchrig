@@ -17,9 +17,11 @@ from benchrig.core.runtimes import (
 from benchrig.reporting.common import (
     EFFICIENCY_HEADERS,
     EFFICIENCY_NOTE,
+    TOOL_HEADERS,
     efficiency_rows,
     spread_lines,
     status_markdown,
+    tool_report_rows,
 )
 
 
@@ -55,6 +57,8 @@ def generate_markdown_report(
     to ``None`` so callers that did not produce the artifact do not get a broken link (spec.md I2).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    tool_rows = tool_report_rows(scorecards)
+    scorecards = [sc for sc in scorecards if sc.get("composite_score") is not None]
     ranked = sorted(scorecards, key=lambda x: x.get("composite_score", 0), reverse=True)
 
     # Resolve composite weights for the report header (Item 12.6)
@@ -428,6 +432,44 @@ def generate_markdown_report(
             "",
         ]
     )
+
+    if tool_rows:
+        lines.extend(
+            [
+                "",
+                "## Tool-use benchmark",
+                "",
+                "Tool rates are independent of composite. n/a means unavailable; unsupported cases are excluded.",
+                "Request latency is non-streaming wall time, not TTFT. Errors and skipped turns remain in eligible denominators.",
+                "",
+                "| " + " | ".join(TOOL_HEADERS) + " |",
+                "|" + ":---|" * len(TOOL_HEADERS),
+            ]
+        )
+        lines.extend(
+            "| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ") for cell in row) + " |" for row in tool_rows
+        )
+        if not scorecards:
+            lines.extend(["", "Legacy composite, speed and memory metrics: n/a (tool-only run)."])
+        tool_results = [r for r in measured_results if r.get("suite") == "tool_use"]
+        if tool_results:
+            lines.extend(
+                [
+                    "",
+                    "### Tool-use scenario evidence",
+                    "",
+                    "| Model | Scenario | Run | Status | Passed turns | First failure |",
+                    "|:---|:---|:---|:---|:---|:---|",
+                ]
+            )
+            for record in tool_results:
+                label = record.get("tool_status", "error")
+                if label == "ok":
+                    label = "PASS" if record.get("success") else "FAIL"
+                passed = sum(t.get("passed", False) for t in record.get("turns", []))
+                lines.append(
+                    f"| {record['model']} | {record['test_id']} | {record.get('run', 0)} | {label} | {passed}/{len(record.get('turns', []))} | {record.get('first_failure')} |"
+                )
 
     content = "\n".join(lines)
     with open(output_path, "w", encoding="utf-8") as f:

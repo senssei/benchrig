@@ -113,3 +113,56 @@ def efficiency_rows(scorecards: list[dict[str, Any]]) -> list[tuple[str, ...]]:
             )
         )
     return rows
+
+
+TOOL_HEADERS = (
+    "Model / Runtime",
+    "Status",
+    "Tasks",
+    "Selection",
+    "Arguments",
+    "Abstention",
+    "False calls",
+    "Structured calls",
+    "Unsupported",
+    "Errors",
+    "Skipped turns",
+    "Content JSON",
+    "Request latency",
+)
+
+
+def tool_report_rows(scorecards):
+    """Parallel tool metrics with denominators and unavailable values."""
+
+    def rate(sc, name, key):
+        value = sc.get(key)
+        if value is None:
+            return "n/a"
+        return f"{value:.1f}% ({sc.get(f'tool_{name}_passed', 0)}/{sc.get(f'tool_{name}_count', 0)})"
+
+    rows = []
+    for sc in scorecards:
+        if "tool_status" not in sc:
+            continue
+        task_rate = sc.get("tool_task_pass_rate")
+        tasks = "n/a" if task_rate is None else f"{task_rate:.1f}% ({sc['tool_tasks_passed']}/{sc['tool_task_count']})"
+        latency = sc.get("tool_request_latency_sec")
+        rows.append(
+            (
+                f"{sc['model']} / {sc.get('runtime', 'unknown')}",
+                sc["tool_status"],
+                tasks,
+                rate(sc, "selection", "tool_selection_accuracy"),
+                rate(sc, "argument", "tool_argument_accuracy"),
+                rate(sc, "abstention", "tool_abstention_accuracy"),
+                rate(sc, "false_call", "tool_false_call_rate"),
+                rate(sc, "structured_call", "tool_structured_call_rate"),
+                str(sc.get("tool_unsupported_count", 0)),
+                str(sc.get("tool_error_count", 0)),
+                str(sc.get("tool_skipped_turn_count", 0)),
+                str(sc.get("tool_content_json_count", 0)),
+                f"{latency:.3f}s" if latency is not None else "n/a",
+            )
+        )
+    return rows

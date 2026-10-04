@@ -229,3 +229,23 @@ Benchmarking steady-state inference performance requires separating cold-start l
   - `"prefix_cached"`: Prompt prefix cache reuse verified through backend telemetry (e.g., Ollama zero-eval-duration prefill `prompt_eval_count == 0` or Prism cache telemetry).
   - `"unverified"`: Repeated identical workload where prefix cache reuse is unsupported or unconfirmed by the runtime.
 
+
+
+### Methodology feedback — (2026-10-04)
+
+Model/runtime warm-up and prefix reuse fail in different ways and should be
+reported separately. The first prepares resident weights and runtime kernels;
+the second measures a steady-state KV-cache hit. Compare a second request with
+the same prefix while fixing cache type and context length, and retain the
+requested settings plus evidence of the actual cache hit. Repetition alone is
+not proof that the server reused the prefix.
+
+Record load, prefill and decode durations separately from TTFT. TTFT covers the
+wait until the first generated token and may include loading and prefill;
+decode continues after that token. When the runtime does not expose a component
+or cache-hit evidence, report it as unavailable or unverified rather than infer
+it from a faster response. A single label such as "warm" cannot describe both
+runtime initialization and verified prefix reuse.
+
+This feedback describes the desired comparison protocol; it does not establish
+that every backend currently exposes cache type or engine timing components.

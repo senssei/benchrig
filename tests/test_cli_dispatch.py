@@ -25,14 +25,14 @@ from unittest.mock import MagicMock, patch
 
 # Pinned help text from BEFORE the split (captured 2026-10-03 with the
 # monolithic ``benchrig/cli.py``). Any drift in this string after the split means the
-# argparse configuration was rewritten instead of moved verbatim — the spec says
-# ``--help`` must be byte-identical.
+# argparse configuration was rewritten instead of moved verbatim. Phase 13
+# updates this snapshot explicitly to add the approved opt-in tool_use suite.
 HELP_SNAPSHOT = """\
 usage: benchrig [-h] [--version] [--config CONFIG]
                 [--scenarios-dir SCENARIOS_DIR]
                 [--runtime {ollama,foundry,onnx-gpu,prism,all}] [--check]
                 [--pull-recommended] [--models MODELS]
-                [--suite {all,speed,coding,reasoning,polish,context}]
+                [--suite {all,speed,coding,reasoning,polish,context,tool_use}]
                 [--runs RUNS] [--warmup-runs WARMUP_RUNS]
                 [--output-dir OUTPUT_DIR] [--compare COMPARE]
                 [--baseline BASELINE] [--pair PAIR] [--csv CSV]
@@ -57,9 +57,9 @@ options:
   --pull-recommended    Pull recommended models for selected runtime(s)
   --models MODELS       Models to benchmark (comma-separated, runtime-prefixed
                         e.g. 'foundry:phi-4', or 'installed')
-  --suite {all,speed,coding,reasoning,polish,context}
+  --suite {all,speed,coding,reasoning,polish,context,tool_use}
                         Test suite selection (all, coding, reasoning, speed,
-                        context, polish)
+                        context, polish, tool_use)
   --runs RUNS           Number of repetitions per test (default: 1)
   --warmup-runs WARMUP_RUNS
                         Number of warm-up iterations per scenario before

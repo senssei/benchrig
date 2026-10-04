@@ -39,17 +39,28 @@ def make_scorecard_figure(scorecards: list[dict[str, Any]]) -> matplotlib.figure
     except ImportError as exc:
         raise RuntimeError("matplotlib is required for --chart (install with `pip install -e .[charts]`)") from exc
 
-    labels = [_bar_label(sc) for sc in scorecards]
-    heights = [float(sc.get(_PNG_BAR_HEIGHT_KEY, 0) or 0) for sc in scorecards]
-    fig, ax = plt.subplots(figsize=(max(6.0, 1.2 * len(scorecards)), 4.5))
-    ax.bar(range(len(scorecards)), heights)
-    ax.set_xticks(range(len(scorecards)))
-    # Rotated and right-aligned so labels (often 30-50+ chars, e.g. "mistral-7b-instruct-v0.2-q4_0 (prism)")
-    # do not run into each other once there are more than a couple of bars.
-    ax.set_xticklabels(labels, rotation=30, ha="right")
-    ax.set_ylabel("composite score")
-    ax.set_ylim(0, 100)
-    ax.set_title("BenchRig scorecards")
+    legacy = [sc for sc in scorecards if sc.get("composite_score") is not None]
+    tool_cards = [sc for sc in scorecards if "tool_status" in sc]
+    panels = []
+    if legacy or not tool_cards:
+        panels.append((legacy, "composite_score", "composite score"))
+    if tool_cards:
+        panels.append((tool_cards, "tool_task_pass_rate", "tool task success (%)"))
+    fig, axes = plt.subplots(
+        len(panels), 1, figsize=(max(6.0, 1.2 * len(scorecards)), 4.5 * len(panels)), squeeze=False
+    )
+    for (cards, key, label), ax in zip(panels, axes[:, 0], strict=True):
+        for i, sc in enumerate(cards):
+            value = sc.get(key)
+            if value is None:
+                ax.text(i, 3, "n/a", ha="center")
+            else:
+                ax.bar(i, float(value))
+        ax.set_xticks(range(len(cards)))
+        ax.set_xticklabels([_bar_label(sc) for sc in cards], rotation=30, ha="right")
+        ax.set_ylabel(label)
+        ax.set_ylim(0, 100)
+        ax.set_title("BenchRig scorecards")
     fig.tight_layout()
     return fig
 

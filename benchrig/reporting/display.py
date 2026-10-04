@@ -14,7 +14,15 @@ from benchrig.core.runtimes import (
     runtime_label,
     scorecard_prefill,
 )
-from benchrig.reporting.common import EFFICIENCY_HEADERS, EFFICIENCY_NOTE, efficiency_rows, spread_lines, status_rich
+from benchrig.reporting.common import (
+    EFFICIENCY_HEADERS,
+    EFFICIENCY_NOTE,
+    TOOL_HEADERS,
+    efficiency_rows,
+    spread_lines,
+    status_rich,
+    tool_report_rows,
+)
 
 console = Console()
 
@@ -58,6 +66,19 @@ def display_system_banner(specs: dict[str, str]):
 
 def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] | None = None):
     """Display the final ranked leaderboard in terminal."""
+    if not scorecards:
+        return
+
+    rows = tool_report_rows(scorecards)
+    if rows:
+        tool_table = Table(title="Tool-use benchmark", header_style="bold cyan")
+        for header in TOOL_HEADERS:
+            tool_table.add_column(header)
+        for row in rows:
+            tool_table.add_row(*row)
+        console.print(tool_table)
+        console.print("[dim]Request latency is non-streaming wall time; n/a is unavailable, not a failed score.[/]")
+    scorecards = [sc for sc in scorecards if sc.get("composite_score") is not None]
     if not scorecards:
         return
 
@@ -171,6 +192,15 @@ def display_scenario_result(res: dict[str, Any]):
     name = res.get("name", "")
     tok_s = res.get("eval_tok_per_sec", 0.0)
     vram = res.get("hardware", {}).get("vram_peak_mb", 0.0)
+
+    if suite == "tool_use":
+        status = res.get("tool_status", "error")
+        if status == "ok":
+            status = "PASS" if res.get("success") else "FAIL"
+        turns = res.get("turns", [])
+        passed = sum(t.get("passed", False) for t in turns)
+        console.print(f"  {model_tag} {name} -> {status} ({passed}/{len(turns)} turns)")
+        return
 
     # A wrong answer is a FAIL below; only a failed request (or, in older results, a record with no verdict) is an ERROR.
     has_verdict = any(key in res for key in ("passed", "correct", "retrieved"))

@@ -557,3 +557,153 @@ change, raw-result migration, or publication is part of this scope.
 Verification: existing docs navigation coverage, Markdown link review, full SDLC
 gate and independent read-only review. Source documents must be present before
 moving; missing source files stop the relocation instead of inventing content.
+
+
+## Planned behavior: Phase 13 — Tool-use benchmark
+
+Status: implementation and additive I1 CSV schema change approved by operator
+2026-10-04 ("zatwierdzam"), scope 13.1–13.4. Fits local-only benchmark intent; tool execution,
+retrieval quality and changes to composite weights are outside scope.
+
+### 13.1 Scenario contract
+
+`tool_use.json` is a JSON array with unique `id`, `name`, `category`, `prompt`,
+`tools` (OpenAI-style function schemas), `options`, `check_type: "tool_call"`, and
+`turns`. Each turn has `expect` containing `tool` (name or null), `args` (object),
+and, for null-tool expectations, mandatory `answer` (exact expected text after
+trimming outer whitespace). A non-final tool turn has a literal `tool_result`
+string. No filesystem, shell, network or retrieval function is actually executed.
+The runner supplies this fixture only after a correct preceding call, using the
+actual assistant call ID/name to construct protocol-appropriate tool messages.
+
+Bundle at least 18 distinct scenarios: at least three in each category of tool
+selection, typed argument extraction, abstention/plain answers, two-step calls,
+Polish prompts and retrieval-shaped calls (`rag_search`, `read_file`, `grep`).
+One expected call maximum per turn; additional/parallel calls fail in this release.
+Schemas use object properties, required, additionalProperties=false, primitive
+JSON types, enum and array items. Validate scenarios before any model request;
+invalid custom scenarios produce a diagnostic naming file/id/field and CLI exit 2.
+No new third-party schema dependency is required for this bounded schema subset.
+
+Argument expectations are literal JSON values or an explicit matcher object
+`{"type": "string", "contains": "text"}`. Literal object key order is irrelevant;
+array order is significant, case/whitespace inside strings are preserved, extra
+arguments fail, and there is no type coercion. Booleans are distinct from numbers;
+integer arguments require integer JSON values (strings and float values fail).
+Reject malformed expectations, undeclared tools and missing continuation results.
+
+### 13.2 Client transport and result contract
+
+Add `BaseRuntimeClient.chat_tools(model, messages, tools, options)` independently
+of existing `generate()`. Initial release is **non-streaming**: Ollama `/api/chat`
+and Foundry/Prism `/chat/completions` with stream=false. Reuse configured endpoint,
+timeouts, auth, Foundry loading behavior and existing Prism 503 retry policy.
+Normalize Ollama object arguments and OpenAI-compatible JSON-string arguments;
+retain response content, raw calls, normalized calls and per-call parse errors.
+Decode argument JSON strictly: reject non-object, duplicate keys, non-finite
+numbers and malformed JSON. Never repair content JSON into structured calls.
+
+Base/direct ONNX returns unsupported without generation because its current
+adapter has no tool channel. Ollama, Foundry and Prism attempt native tools;
+explicit capability rejection (recognized unsupported-tools response/metadata)
+is unsupported. Generic HTTP 400/404, transport errors, malformed responses and
+exhausted retries are errors, not unsupported. Record reason and HTTP status when
+available. Stop later tool requests for a (model,runtime) only on confirmed
+unsupported; emit unsupported records for all remaining scenario repetitions.
+Do not suppress other suites. Persistent capacity errors retain existing behavior.
+
+Result distinguishes transport status `ok|error|unsupported`, structured-channel
+presence, valid/malformed calls, and `json_in_content` (whole content or one JSON
+fence parses as a tool-call-shaped object/array). Text-only JSON never passes a
+call-required turn. Refusal is recorded through failed expected-answer matching
+and retained text, not inferred universally through a keyword heuristic.
+
+Record request wall time and server usage/telemetry with existing estimation and
+placement provenance rules. TTFT/decode duration/speed are unavailable (null)
+when not reported by the server; never substitute total non-streaming latency.
+Report tool-specific timing separately from legacy speed-suite statistics.
+Implementation references: Ollama official tool-calling documentation
+(https://docs.ollama.com/capabilities/tool-calling) and Foundry tool-calling guide
+(https://learn.microsoft.com/en-us/azure/foundry-local/how-to/how-to-use-tool-calling-with-foundry-local),
+checked 2026-10-04. Local Prism checkout referenced by older plans was unavailable;
+verify deployed/local contract with fixtures before claiming live compatibility.
+
+### 13.3 Runner, scoring and repetitions
+
+`--suite tool_use` is opt-in; `--suite all` retains the existing five suites.
+Use existing `--runs N` (default unchanged at 1); documentation recommends
+`--runs 3`. Bundled scenarios explicitly set temperature=0 and seed=42 where
+supported. Record effective settings; no guarantee of model determinism. A
+nonzero-temperature variant is deferred to a separately specified experiment.
+Each measured repetition starts a fresh conversation. Warm-ups use the same
+conversation/fixture protocol, carry phase=warmup and are excluded from metrics.
+
+A turn passes only on transport success, no truncation, exactly the expected
+single structured call and matching typed arguments. Abstention passes only on
+no structured call, no detected content-call JSON, and the required answer.
+Stop a multi-step scenario after the first failed turn, marking later turns
+not_run_due_to_prior_failure. Such turns cannot contribute successes. Record
+all expected turn counts, attempted counts, per-turn evidence and first failure.
+Scenario success requires every planned turn to pass. Progress advances once
+per scenario repetition; warm-ups do not advance measured progress.
+
+Aggregate per (model,runtime), with integer numerator/denominator alongside rates:
+- task success: fully passed scenarios / eligible measured scenarios;
+- selection accuracy: exactly correct single tool / planned call-required turns;
+- argument accuracy: matching arguments / planned call-required turns (wrong
+  tool, malformed call, error or skipped turn contributes no success);
+- abstention accuracy: successful expected-answer no-call / planned null turns;
+- false-call rate: null turns with any structured or detected content call /
+  planned null turns; record errors/skipped counts alongside this diagnostic;
+- structured-call rate: call-required turns emitting a nonempty tool_calls
+  channel / planned call-required turns (malformed arguments remain observable).
+Unsupported records are excluded from eligibility and counted separately.
+Error and skipped turns remain in denominators to avoid inflating scores.
+Zero denominator yields null/n/a, never 0%. Report partial/unsupported/error
+counts so incomplete coverage cannot imply full benchmark success.
+
+### 13.4 Reporting and compatibility
+
+Add separate tool-use tables to terminal/Markdown with the rates above, pass
+counts, coverage, errors, content-JSON observations, and mean request wall time
+for completed successful requests. Preserve existing suite outcome rendering.
+Append CSV columns: tool_status, tool_tasks_passed, tool_task_count,
+tool_task_pass_rate, tool_selection_accuracy, tool_argument_accuracy,
+tool_abstention_accuracy, tool_false_call_rate, tool_structured_call_rate,
+tool_unsupported_count, tool_error_count, tool_request_latency_sec. JSON holds
+all numerator/denominator pairs and per-turn evidence. Null rates produce empty
+CSV cells and n/a Markdown/terminal cells. This additive I1 CSV contract change
+was explicitly approved by operator 2026-10-04; existing columns stay in order.
+
+Tool records do not enter existing coding/reasoning/performance composite inputs
+or legacy aggregate timing/placement/memory fields. Tool-only scorecards expose
+legacy scores/metrics as unavailable, not fabricated zero performance; existing
+reporters must safely render null fields. Charts use separate tool-task-success
+panels when tool evidence exists; unsupported/zero-denominator entries display
+n/a, not zero-height failures. Existing composite panels remain unchanged when
+no tool evidence is present; omit composite panel for tool-only results.
+
+Normative updates: docs/scenarios.md, docs/benchmark-suites.md, docs/cli.md,
+docs/runtimes.md, README.md and CHANGELOG.md. No new default suite execution,
+composite weight, cloud traffic, external tool execution, or shipping action.
+
+### 13.5 Live results and harness decision — deferred
+
+Live model experiments are a separate operator-authorized step after hermetic
+implementation/review. Before the run, agree on installed model/runtime pairs,
+repetitions, temperature, coverage requirements and acceptance thresholds. Do
+not infer production harness suitability from the earlier n=1 probe. A real
+results note must report denominators/errors/unsupported pairs and platform/
+runtime versions. No automatic change to dark-factory or rag repositories.
+
+
+### CI Python 3.10 development dependency compatibility — 2026-10-04
+
+Operator requested a fix for CI / test (3.10), failing during dependency install.
+Keep the product/test matrix at Python 3.10–3.13. The development dependency on
+`local-sdlc-kit` is selected only for Python >=3.11 using a PEP 508 environment
+marker, matching the kit's interpreter requirement. Python 3.10 still installs
+the remaining test/lint/build/chart dependencies and runs the same CI checks.
+Full SDLC kit tooling requires a newer interpreter as documented; no gate or
+matrix entry is removed. Regression evaluates the actual declared requirement
+against Python 3.10 and 3.11 marker environments.

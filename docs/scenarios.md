@@ -160,3 +160,18 @@ Context scaling scenarios measure how prompt prefill speed and Time to First Tok
 2. **Explicit Signatures**: Provide full function headers with Python type hints in coding prompts.
 3. **Comprehensive Assertions**: Include boundary cases (empty collections `[]`, `{}`, negative values, large inputs).
 4. **Isolated Test State**: Do not write assertions that depend on external internet access or filesystem state.
+
+
+## Tool-use scenarios (`tool_use.json`)
+
+Tool-use cases contain `id`, `name`, `category`, `prompt`, `tools` (function schemas),
+`options`, `check_type: "tool_call"` and `turns`. Each turn has an `expect` object:
+`tool` is a function name or null, and `args` contains typed literal JSON values.
+A null tool requires an `answer` string: correct abstention must also answer the
+question. A string matcher may use `{"type": "string", "contains": "text"}`.
+Extra arguments, incorrect types, extra calls and malformed call JSON fail.
+Non-final turns require a literal `tool_result` string supplied by the benchmark
+only after a correct call. No named tool is executed; file/retrieval tools are
+inert fixtures. Function schemas use object properties/required,
+`additionalProperties: false`, primitive types, enum and array items.
+Invalid scenarios are rejected before model requests with exit 2.

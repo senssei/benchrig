@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -200,6 +201,7 @@ def _post_with_503_retry(
 class BaseRuntimeClient:
     """Abstract base class establishing a uniform contract across local inference engines."""
 
+    native_tool_channel: bool = False
     name: str = "base"
     display_name: str = "Base Runtime"
     engine_name: str = "Unknown Engine"
@@ -270,6 +272,27 @@ class BaseRuntimeClient:
         """Execute text generation with precision timing and token throughput telemetry."""
         raise NotImplementedError
 
+    def chat_tools(self, model, messages, tools, options=None):
+        """Return unsupported for adapters without a native tool-call channel."""
+        return {
+            "success": False,
+            "tool_status": "unsupported",
+            "error": "adapter has no native tool channel",
+            "model": model,
+            "runtime": self.name,
+            "engine": self.engine_name,
+            "response": "",
+            "tool_calls": [],
+            "raw_tool_calls": [],
+            "parse_errors": [],
+            "structured_call": False,
+            "json_in_content": False,
+            "ttft_sec": None,
+            "decode_duration_sec": None,
+            "eval_tok_per_sec": None,
+            "request_latency_sec": None,
+        }
+
     def _failure_result(self, model: str, error: Exception, start_time: float) -> dict[str, Any]:
         """Uniform `generate()` result for a failed request (start_time from time.perf_counter())."""
         return {
@@ -289,6 +312,7 @@ class BaseRuntimeClient:
 class OllamaClient(BaseRuntimeClient):
     """Client for Ollama REST API with native performance metrics and llama.cpp backend."""
 
+    native_tool_channel: bool = True
     name: str = "ollama"
     display_name: str = "Ollama"
     engine_name: str = "llama.cpp"
@@ -391,6 +415,9 @@ class OllamaClient(BaseRuntimeClient):
             if stream_callback:
                 stream_callback({"status": "error", "error": str(e)})
             return False
+
+    def chat_tools(self, model, messages, tools, options=None):
+        return _chat_tools_request(self, model, messages, tools, options, native=True)
 
     def generate(
         self,
@@ -578,6 +605,7 @@ class FoundryClient(BaseRuntimeClient):
     Powered by ONNX Runtime GenAI with an OpenAI-compatible REST API.
     """
 
+    native_tool_channel: bool = True
     name: str = "foundry"
     display_name: str = "MS Foundry"
     engine_name: str = "ONNX Runtime GenAI"
@@ -872,6 +900,9 @@ class FoundryClient(BaseRuntimeClient):
         same logging — see plan.md Phase 11 item 11.3 for the contract.
         """
         return _logged_request(self.name, self.engine_name, url, **kwargs)
+
+    def chat_tools(self, model, messages, tools, options=None):
+        return _chat_tools_request(self, model, messages, tools, options, native=False)
 
     def generate(
         self,
@@ -1316,3 +1347,159 @@ def create_runtime_client(runtime_name: str, config: dict[str, Any]) -> BaseRunt
     timeout = o_conf.get("timeout_sec", 180)
     num_ctx = o_conf.get("default_num_ctx", 4096)
     return OllamaClient(base_url=base_url, timeout_sec=timeout, default_num_ctx=num_ctx)
+
+
+def _chat_tools_request(client, model, messages, tools, options, native):
+    """Use native non-streaming tool chat without changing text-generation APIs."""
+    from copy import deepcopy
+
+    from benchrig.core.tool_use import content_has_call, normalize_calls
+
+    started = time.perf_counter()
+    result = {
+        "success": False,
+        "tool_status": "error",
+        "model": model,
+        "runtime": client.name,
+        "engine": client.engine_name,
+        "response": "",
+        "tool_calls": [],
+        "raw_tool_calls": [],
+        "parse_errors": [],
+        "structured_call": False,
+        "json_in_content": False,
+        "ttft_sec": None,
+        "decode_duration_sec": None,
+        "eval_tok_per_sec": None,
+        "prompt_tok_per_sec": None,
+        "prefill_duration_sec": None,
+        "prefill_provenance": "unavailable",
+        "requested_device": client.requested_device,
+        "observed_device": "unknown",
+        "usage_estimated": True,
+    }
+    try:
+        conversation = deepcopy(messages)
+        payload = {"model": model, "messages": conversation, "tools": tools, "stream": False}
+        options = dict(options or {})
+        if native:
+            for message in conversation:
+                if message.get("role") == "tool":
+                    message.pop("tool_call_id", None)
+                for call in message.get("tool_calls", []):
+                    if isinstance(call["function"].get("arguments"), str):
+                        call["function"]["arguments"] = json.loads(call["function"]["arguments"])
+            payload["options"] = {"num_ctx": client.default_num_ctx, **options}
+            endpoint = f"{client.base_url}/api/chat"
+            kwargs = {}
+        else:
+            for message in conversation:
+                if message.get("role") == "tool":
+                    message.pop("tool_name", None)
+            for key in ("temperature", "top_p", "seed", "top_k", "repetition_penalty", "stop"):
+                if key in options:
+                    payload[key] = options[key]
+            payload["max_tokens"] = options.get("num_predict", options.get("max_tokens", client.default_max_tokens))
+            endpoint = client._get_api_endpoint("chat/completions")
+            kwargs = client._request_kwargs()
+
+        def send():
+            return client._make_request(endpoint, json=payload, timeout=client.timeout_sec, model=model, **kwargs)
+
+        response = send()
+        if (
+            not native
+            and response.status_code == 400
+            and any(s in response.text.lower() for s in ("is not loaded", "load the model"))
+        ):
+            if client.load_model(model):
+                response = send()
+        result["request_latency_sec"] = round(time.perf_counter() - started, 6)
+        result["http_status"] = response.status_code
+        if response.status_code in (400, 422) and re.search(
+            r"does not support tools|tools? (?:are |is )?not supported|unsupported.tools", response.text, re.IGNORECASE
+        ):
+            result.update(tool_status="unsupported", error=response.text)
+            return result
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict):
+            raise ValueError("chat response must be an object")
+        message = body.get("message") if native else body["choices"][0]["message"]
+        if not isinstance(message, dict) or not isinstance(message.get("content", ""), (str, type(None))):
+            raise ValueError("chat message/content is malformed")
+        content = message.get("content") or ""
+        raw = message.get("tool_calls", [])
+        calls, errors = normalize_calls(raw, native)
+        result.update(
+            success=True,
+            tool_status="ok",
+            response=content,
+            raw_tool_calls=raw,
+            tool_calls=calls,
+            parse_errors=errors,
+            structured_call=bool(raw),
+            json_in_content=content_has_call(content),
+            assistant_message=message,
+            finish_reason=body.get("done_reason") if native else body["choices"][0].get("finish_reason"),
+        )
+        result["truncated"] = result["finish_reason"] in ("length", "max_tokens")
+        result["raw_metrics"] = {
+            "reported_usage": body if native else body.get("usage"),
+            "telemetry": body.get("telemetry"),
+        }
+        usage = body if native else body.get("usage", {})
+        if usage is None:
+            usage = {}
+        if not isinstance(usage, dict):
+            raise ValueError("chat usage must be an object")
+        prompt_key, eval_key = ("prompt_eval_count", "eval_count") if native else ("prompt_tokens", "completion_tokens")
+        prompt_count, eval_count = usage.get(prompt_key), usage.get(eval_key)
+        if any(value is not None and (type(value) is not int or value < 0) for value in (prompt_count, eval_count)):
+            raise ValueError("chat usage counts must be nonnegative integers")
+        result["usage_estimated"] = prompt_count is None or eval_count is None
+        result["prompt_eval_count"] = (
+            prompt_count if prompt_count is not None else max(1, len(json.dumps(payload, ensure_ascii=False)) // 4)
+        )
+        result["eval_count"] = (
+            eval_count if eval_count is not None else max(1, len(content + json.dumps(raw, ensure_ascii=False)) // 4)
+        )
+        telemetry = body.get("telemetry") or {}
+        if not isinstance(telemetry, dict):
+            telemetry = {}
+        if native:
+            if body.get("eval_duration", 0) > 0:
+                result["decode_duration_sec"] = body["eval_duration"] / 1e9
+                result["eval_tok_per_sec"] = result["eval_count"] / result["decode_duration_sec"]
+            if body.get("prompt_eval_duration", 0) > 0:
+                result["prefill_duration_sec"] = body["prompt_eval_duration"] / 1e9
+                result["prefill_provenance"] = "engine"
+        else:
+            for key in ("ttft_sec", "decode_duration_sec", "prefill_duration_sec"):
+                value = telemetry.get(key)
+                if key == "prefill_duration_sec" and value is None:
+                    value = telemetry.get("prompt_eval_duration_sec")
+                if type(value) in (int, float) and math.isfinite(value) and value >= 0:
+                    result[key] = value
+            if result["prefill_duration_sec"] is not None:
+                result["prefill_provenance"] = "engine"
+        observed = telemetry.get("device") or "unknown"
+        if observed != "unknown":
+            result["observed_device"] = observed
+        if isinstance(client, PrismClient):
+            result["engine"] = client._engine_for(model)
+            if (
+                observed == "unknown"
+                and "ollama" not in result["engine"].lower()
+                and "llama" not in result["engine"].lower()
+            ):
+                result["observed_device"] = client._health().get("active_device") or "unknown"
+        result["cpu_fallback"] = result["requested_device"] in ("gpu", "cuda", "metal") and str(
+            result["observed_device"]
+        ).lower() in ("cpu", "generic-cpu")
+    except (requests.RequestException, PrismBusyError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
+        result.update(success=False, tool_status="error", error=str(exc))
+    finally:
+        if "request_latency_sec" not in result:
+            result["request_latency_sec"] = round(time.perf_counter() - started, 6)
+    return result

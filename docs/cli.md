@@ -149,3 +149,18 @@ BENCHRIG_LOG_LEVEL=DEBUG benchrig …                            # env var only
   ```bash
   benchrig --log-level INFO 2> >(jq -c 'select(.event=="http.request_failed")') …
   ```
+
+
+## Tool-use benchmark
+
+Run the fixture-only benchmark explicitly with `benchrig --suite tool_use --runs 3`.
+`--suite all` keeps the existing five suites; tool-use results do not change the
+legacy composite score. Tool-only scorecards show legacy metrics as unavailable.
+Existing `--runs` defaults to 1; three repetitions are recommended. Tool-use
+conversations start fresh each time and keep the scenario prompt unchanged.
+Bundled cases set temperature 0 and seed 42 where supported. Per-scenario warm-ups
+use `--warmup-runs` and are excluded from measured results and progress counts.
+
+`--csv` appends tool-use columns; `--chart` adds a tool-task-success panel rather
+than presenting those scores as composite. `--compare` displays cached tool
+summaries; 1:1 legacy comparison requires legacy composite evidence.

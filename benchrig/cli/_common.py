@@ -42,6 +42,10 @@ SUITES: dict[str, tuple[str, str, str]] = {
     "context": ("context_scaling.json", "run_context_suite", "Running context scaling suite (512 - 8k tokens)..."),
 }
 
+# The new suite is explicit opt-in; "all" preserves the original benchmark workload.
+DEFAULT_SUITES = tuple(SUITES)
+SUITES["tool_use"] = ("tool_use.json", "run_tool_use_suite", "Running tool-use tests...")
+
 RUNTIME_CHOICES = ["ollama", "foundry", "onnx-gpu", "prism", "all"]
 
 # Accepted `runtime:model` prefixes, normalized to canonical runtime names.

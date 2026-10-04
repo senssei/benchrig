@@ -627,6 +627,114 @@ class BenchmarkRunner:
                 options["num_ctx"] = self._sampling_defaults()["num_ctx"]
             self.client.generate(model=model, prompt=CONTEXT_WARMUP_PROMPT, options=options, measure_ttft=False)
 
+    def run_tool_use_suite(self, model, scenarios):
+        """Run inert fixture conversations; never invoke any model-selected function."""
+        import json
+        from copy import deepcopy
+
+        from benchrig.core.tool_use import score_turn, validate_scenarios
+
+        validate_scenarios(scenarios)
+        if not hasattr(self, "_tool_unsupported"):
+            self._tool_unsupported = {}
+        results = []
+        for sc in scenarios:
+            options = self._effective_options("tool_use", model, sc["options"])
+            schemas = {t["function"]["name"]: t["function"]["parameters"] for t in sc["tools"]}
+            for attempt in range(self.warmup_runs + 1):
+                phase = "warmup" if attempt < self.warmup_runs else "measured"
+                messages = [{"role": "user", "content": sc["prompt"]}]
+                turns = []
+                prior_failed = False
+                unsupported = self._tool_unsupported.get(model)
+                for i, expected_turn in enumerate(sc["turns"]):
+                    expect = expected_turn["expect"]
+                    if unsupported:
+                        resp = {"tool_status": "unsupported", "success": False, "error": unsupported}
+                    elif prior_failed:
+                        resp = {"tool_status": "not_run_due_to_prior_failure", "success": False}
+                    elif self._capacity_exhausted_reason:
+                        resp = {"tool_status": "error", "success": False, "error": self._capacity_exhausted_reason}
+                    else:
+                        # The sampler operates on the runtime, not the named fixture tool.
+                        sampler = self._create_sampler()
+                        sampler.start()
+                        try:
+                            resp = self.client.chat_tools(
+                                model=model, messages=deepcopy(messages), tools=sc["tools"], options=options
+                            )
+                        finally:
+                            hardware = sampler.stop()
+                        resp["hardware"] = hardware
+                        reason = self._capacity_error(resp)
+                        if reason:
+                            self._capacity_exhausted_reason = reason
+                    scored = score_turn(expect, resp, schemas.get(expect["tool"]))
+                    turns.append({**resp, **scored, "expect": deepcopy(expect), "turn": i})
+                    if resp.get("tool_status") == "unsupported":
+                        unsupported = str(resp.get("error") or "tools unsupported")
+                        self._tool_unsupported[model] = unsupported
+                    if not scored["passed"]:
+                        prior_failed = True
+                    elif i < len(sc["turns"]) - 1:
+                        call = resp["tool_calls"][0]
+                        call_id = call.get("id") or f"fixture_{i}"
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": resp.get("response", ""),
+                                "tool_calls": [
+                                    {
+                                        "id": call_id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": call["name"],
+                                            "arguments": json.dumps(call["arguments"], ensure_ascii=False),
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call_id,
+                                "tool_name": call["name"],
+                                "content": expected_turn["tool_result"],
+                            }
+                        )
+                status = (
+                    "unsupported"
+                    if unsupported
+                    else "error"
+                    if any(t.get("tool_status") == "error" for t in turns)
+                    else "ok"
+                )
+                record = {
+                    "suite": "tool_use",
+                    "test_id": sc["id"],
+                    "name": sc["name"],
+                    "category": sc["category"],
+                    "model": model,
+                    "runtime": self.client.name,
+                    "engine": self.client.engine_name,
+                    "run": self.run_index,
+                    "phase": phase,
+                    "options": dict(options),
+                    "turns": turns,
+                    "tool_status": status,
+                    "success": all(t["passed"] for t in turns),
+                    "first_failure": next((t["turn"] for t in turns if not t["passed"]), None),
+                    "planned_turn_count": len(turns),
+                    "attempted_turn_count": sum(
+                        t.get("tool_status") in ("ok", "error") and "request_latency_sec" in t for t in turns
+                    ),
+                }
+                results.append(record)
+                if self.on_result:
+                    self.on_result(record)
+        return results
+
     def compute_model_scorecard(
         self,
         model: str,
@@ -644,6 +752,55 @@ class BenchmarkRunner:
         ]
         if not model_results:
             return {}
+
+        from benchrig.core.tool_use import aggregate_tools
+
+        tool_records = [r for r in model_results if r.get("suite") == "tool_use"]
+        tool_metrics = aggregate_tools(tool_records) if tool_records else {}
+        model_results = [r for r in model_results if r.get("suite") != "tool_use"]
+        if not model_results:
+            null_fields = (
+                "composite_score",
+                "coding_pass_rate",
+                "coding_task_pass_rate",
+                "coding_task_count",
+                "coding_tasks_passed",
+                "coding_assertion_count",
+                "coding_assertions_passed",
+                "reasoning_accuracy",
+                "avg_eval_tok_sec",
+                "avg_eval_tok_sec_mean",
+                "avg_prompt_tok_sec",
+                "avg_prefill_eff_tok_sec",
+                "avg_ttft_sec",
+                "peak_vram_mb",
+                "peak_rss_mb",
+                "vram_model_mb",
+                "vram_baseline_mb",
+                "vram_baseline_dirty_mb",
+                "tokens_per_joule",
+                "cold_start_sec",
+                "gpu_fit_pct",
+                "context_retrieval_pct",
+                "total_vram_mb",
+                "prefill_duration_sec",
+                "decode_duration_sec",
+                "context_tokens",
+            )
+            return {
+                **dict.fromkeys(null_fields),
+                **tool_metrics,
+                "model": model,
+                "runtime": tool_records[0].get("runtime", self.client.name),
+                "engine": tool_records[0].get("engine", self.client.engine_name),
+                "runs": len({r.get("run", 0) for r in tool_records}),
+                "spread": {},
+                "total_runs": len(tool_records),
+                "requested_device": "unknown",
+                "observed_device": "unknown",
+                "cpu_fallback": False,
+                "prefill_provenance": "unavailable",
+            }
 
         sc_runtime = model_results[0].get("runtime", getattr(self.client, "name", "ollama"))
         sc_engine = model_results[0].get("engine", getattr(self.client, "engine_name", "llama.cpp"))
@@ -807,6 +964,7 @@ class BenchmarkRunner:
         )
 
         return {
+            **tool_metrics,
             "model": model,
             "runtime": sc_runtime,
             "engine": sc_engine,

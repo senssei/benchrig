@@ -160,6 +160,13 @@ use the commands above when you need the development tools.
 
 ---
 
+### Tool-call reliability
+
+Use `benchrig --suite tool_use --runs 3` for a separate, opt-in benchmark of
+native tool selection, typed arguments, no-call answers and fixture conversations.
+No named tool is executed; unsupported pairs show n/a. See the
+[tool-use suite](docs/benchmark-suites.md#tool-use-suite-opt-in).
+
 ## 💻 CLI Usage & Examples
 
 ### 1. Diagnostic Environment Check

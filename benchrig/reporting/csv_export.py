@@ -39,6 +39,18 @@ SCORECARD_CSV_COLUMNS: tuple[str, ...] = (
     "coding_task_count",
     "coding_assertions_passed",
     "coding_assertion_count",
+    "tool_status",
+    "tool_tasks_passed",
+    "tool_task_count",
+    "tool_task_pass_rate",
+    "tool_selection_accuracy",
+    "tool_argument_accuracy",
+    "tool_abstention_accuracy",
+    "tool_false_call_rate",
+    "tool_structured_call_rate",
+    "tool_unsupported_count",
+    "tool_error_count",
+    "tool_request_latency_sec",
 )
 
 

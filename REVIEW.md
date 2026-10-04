@@ -84,3 +84,23 @@ Author gate: `python3 scripts/sdlc_check.py` exit 0 (460 passed, 4 skipped,
 4 subtests passed; lint, format, changelog PASS). `git diff --check` clean.
 MkDocs build remains unverified: MkDocs is not installed in `.venv`.
 No fresh runtime benchmarks, commit, push, or site publication performed.
+
+
+## Phase 13 and CI dependency review — 2026-10-04
+
+Independent read-only reviewers `/root/review_tool_core` and
+`/root/review_tool_reports` reviewed artifacts and the working diff. Six initial
+P2 findings and one native nonfinite follow-up were resolved; final re-reviews
+found no actionable findings (48 core tests; 31 report/CLI/dependency tests and
+4 subtests independently passed). Findings concerned attempted-request counts,
+latency boundaries, raw telemetry, usage validation, nonfinite arguments and
+pair-selected preflight. Regression tests reproduce the core defects red-first.
+
+Author gate: `python3 scripts/sdlc_check.py` exit 0: 516 passed, 4 skipped,
+4 subtests passed; lint, format and changelog PASS. Python 3.10 interpreter is
+not installed locally; dependency marker behavior was verified hermetically,
+not by a GitHub CI rerun. Rafał Warzycha feedback recorded in the methodology
+tutorial; no new cache-hit or live benchmark claims. No commit or push.
+
+Final package build: `.venv/bin/python -m build` exit 0; wheel and sdist
+built successfully with approved build-network escalation.

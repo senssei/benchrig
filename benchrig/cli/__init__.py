@@ -129,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--suite",
         default="all",
         choices=["all", *SUITES],
-        help="Test suite selection (all, coding, reasoning, speed, context, polish)",
+        help="Test suite selection (all, coding, reasoning, speed, context, polish, tool_use)",
     )
     parser.add_argument("--runs", type=int, default=1, help="Number of repetitions per test (default: 1)")
     parser.add_argument(
@@ -192,6 +192,23 @@ def main() -> None:
 
     _bootstrap_cuda_env()
     config = load_config(args.config)
+
+    effective_suite = args.suite
+    if args.pair and effective_suite == "all":
+        pair = next(
+            (p for p in config.get("model_pairs_1to1", []) if args.pair in (p.get("id"), p.get("name"))),
+            {},
+        )
+        effective_suite = pair.get("recommended_suite") or effective_suite
+    if effective_suite == "tool_use" and not (args.check or args.pull_recommended or args.compare):
+        from benchrig.cli._common import load_scenario_file
+        from benchrig.core.tool_use import validate_scenarios
+
+        path = os.path.join(resolve_scenarios_dir(args.scenarios_dir), "tool_use.json")
+        try:
+            validate_scenarios(load_scenario_file(path), path)
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
 
     clients: dict[str, BaseRuntimeClient] = {
         name: create_runtime_client(name, config) for name in ("ollama", "foundry", "onnx-gpu", "prism")

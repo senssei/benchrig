@@ -141,3 +141,19 @@ BenchRig records execution placement across all backends to prevent silent CPU f
 - **Reporting & Export**:
   - **Markdown & Terminal**: The leaderboard marks CPU fallback models with `⚠️ CPU Fallback` and unknown devices with `❓ Unknown Device` instead of assuming 100% VRAM offload.
   - **CSV Export**: `SCORECARD_CSV_COLUMNS` appends `requested_device`, `observed_device`, and `cpu_fallback` for spreadsheet analysis.
+
+
+## Tool-use benchmark transport
+
+The opt-in `--suite tool_use` uses Ollama's native `/api/chat` and the
+OpenAI-compatible chat endpoint for Foundry Local and Prism, with tools and
+non-streaming responses. Ollama arguments arrive as objects; Foundry/Prism
+argument strings are decoded strictly. Existing authentication, timeouts,
+Foundry loading and Prism 503 retries also apply to tool requests.
+
+Direct ONNX's current adapter has no native tool-call channel and reports
+unsupported without generation. An explicit server tool-capability rejection
+also reports unsupported; generic HTTP errors remain errors. A confirmed
+unsupported model stops later tool requests but does not suppress other suites.
+No model-name whitelist is used. Tests use synthetic HTTP fixtures; they do not
+establish compatibility with every installed server/template version.

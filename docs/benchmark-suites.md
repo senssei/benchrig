@@ -198,3 +198,33 @@ Evaluates linguistic precision in morphologically rich and complex languages (Po
 * **Grammatical Declension**: Testing correct nominal and adjectival case inflections across all 7 Polish cases (*przypadki*).
 * **Idiomatic Nuance**: Translating and interpreting idioms and culturally specific expressions.
 * **Text Summarization**: Preserving factual precision under strict word-count limits.
+
+
+## Tool-use suite (opt-in)
+
+`benchrig --suite tool_use --runs 3` measures native function-call reliability,
+not execution or retrieval quality. The 18 bundled cases cover tool selection,
+integer/enum/array arguments, correct no-call answers, two-step fixture calls,
+Polish prompts and retrieval-shaped requests. Function names are inert: BenchRig
+never reads the requested file, searches a real index, or runs a model-selected command.
+
+A task passes when every planned turn succeeds. A call requires exactly the
+expected tool, schema-valid arguments, exact JSON types and no extra arguments.
+Object key order is ignored; array order and string contents matter. Plain-text
+call JSON and malformed/extra calls fail. A no-call response must also match its
+expected answer, so a refusal does not count as correct abstention. The first
+wrong turn stops the conversation; later planned turns remain failed evidence.
+
+Reports show task success, tool selection accuracy, argument accuracy, abstention
+accuracy, false-call rate and structured-call rate, with numerators/denominators.
+Selection/argument/structured-call denominators include all planned call turns;
+abstention/false-call denominators include all planned no-call turns. Errors and
+skipped turns are counted alongside those rates. Unsupported cases are excluded
+from eligible denominators and counted separately. Warm-ups are excluded. A zero
+denominator is n/a, not a 0% score. Results apply to a model/runtime pair.
+
+Initial transport is non-streaming: request latency is wall time, and TTFT,
+prefill/decode timing or throughput are unavailable unless reported by the server.
+Tool metrics do not feed legacy composite, timing or memory aggregates. Tool-only
+runs expose those legacy fields as unavailable; raw JSON preserves turn evidence,
+effective sampling settings and reported execution placement.

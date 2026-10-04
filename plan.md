@@ -802,9 +802,16 @@ Risks and open questions:
 
 ---
 
-## Phase 13: Tool-use suite (proposed)
+## Phase 13: Tool-use suite (spec/plan drafted)
 
-Status: proposed (2026-10-01); **pending operator approval** before any item moves to `approved` and `spec.md` is updated.
+Status: implementation authorized by operator 2026-10-04 ("zatwierdzam") for
+13.1–13.4, including the additive I1 CSV contract change. Implementation green:
+full gate exit 0 (516 passed, 4 skipped, 4 subtests passed; lint/format/changelog
+PASS). Red evidence: new scenario loading, client API, runner continuation,
+aggregation, legacy isolation, CSV columns and null-safe report tests observed
+failing before their implementation. Existing progress behavior retained and
+covered (test factory corrected to wire the callback). Next: package build and
+independent review; CI3.10 fix and requested methodology feedback included. Live experiments/threshold decision 13.5 remain deferred.
 Supersedes the "Tool-calling suite" backlog bullet. Motivation: `~/06-dark-factory` may evolve into a tool-using harness
 (with `~/07-rag` as a `rag_search` tool); whether the local models can drive one is unmeasured.
 
@@ -823,56 +830,78 @@ Takeaways to design against: (a) "emitted valid JSON in `content`" and "returned
 outcomes and must be scored separately; (b) abstention (no call when none is needed) fails in both directions; (c) argument
 types drift; (d) unsupported-tools models must be reported as `unsupported`, not as `0%`.
 
-- [ ] <!-- Item 13.1: Scenario format for tool use.
-         Files: benchrig/data/scenarios/tool_use.json (new), docs/scenarios.md.
-         Fields per scenario: `id`, `name`, `prompt`, `tools` (OpenAI-style function schemas), `check_type: "tool_call"`,
-         `expect` = {`tool`: name | null (null = must abstain), `args`: {key: exact value | {"type": ..., "contains": ...}}}.
-         Categories (>= 3 scenarios each): single-tool selection among 2-4 tools; argument extraction with typed params
-         (integer/enum/array); abstention (no tool applicable, incl. a plain-answer question); multi-step (call, then a
-         second call after a supplied tool result); Polish-language prompts (reuse `polish.json` conventions);
-         retrieval-shaped (`rag_search(query, k)`, `read_file(path)`, `grep(pattern, path)`) matching 06/07's planned tools.
-         Test: JSON schema/loader test that every scenario is well-formed (hermetic).
-         Status: proposed. -->
+- [x] **13.1 Scenario format and bundled cases.** Files: `benchrig/data/scenarios/tool_use.json`,
+  `benchrig/core/tool_use.py` (schema validation), `docs/scenarios.md`,
+  `tests/test_tool_use_scenarios.py`. Tests: `test_bundled_categories_have_three_cases_each`,
+  `test_invalid_scenario_is_rejected_before_requests`, `test_multistep_requires_fixture_result`,
+  `test_abstention_requires_answer`, `test_typed_matchers_are_validated`.
+- [x] **13.2a Tool chat clients.** Files: `benchrig/core/client.py`,
+  `benchrig/core/onnx_client.py`, `tests/test_tool_use_clients.py`.
+  Tests: `test_ollama_uses_chat_and_object_arguments`,
+  `test_foundry_and_prism_decode_argument_strings`,
+  `test_direct_onnx_returns_unsupported_without_generation`,
+  `test_malformed_arguments_preserve_raw_evidence`,
+  `test_content_json_is_not_a_structured_call`, `test_only_explicit_capability_rejection_is_unsupported`,
+  `test_chat_tools_preserves_auth_loading_and_retry_contracts`,
+  `test_nonstreaming_latency_is_not_ttft`. Mock HTTP response fixtures;
+  no live daemon requirement or cloud client.
+- [x] **13.2b Fixture conversations and measured records.** Files:
+  `benchrig/core/runner.py`, `benchrig/core/tool_use.py`, `tests/test_tool_use_runner.py`.
+  Tests: `test_continuation_uses_actual_call_id_and_fixture_result`,
+  `test_failed_turn_stops_followups_but_preserves_planned_count`,
+  `test_unsupported_stops_only_tool_requests_for_that_model`,
+  `test_warmups_and_repetitions_use_fresh_conversations`,
+  `test_fixture_tools_never_execute_model_selected_actions`,
+  `test_effective_settings_and_placement_are_recorded`.
+- [x] **13.3 Strict scoring and aggregation.** Files: `benchrig/core/tool_use.py`,
+  `benchrig/core/runner.py`, `tests/test_tool_use_scoring.py`.
+  Tests: `test_argument_matching_is_typed_and_rejects_extras`,
+  `test_refusal_and_text_json_fail_abstention`,
+  `test_rates_use_planned_denominators_and_exclude_unsupported_and_warmups`,
+  `test_zero_denominators_are_unavailable`, `test_tool_evidence_does_not_change_legacy_composite`.
+  Cover booleans vs integers, malformed/multiple calls, reordered keys,
+  array ordering, transport failures and skipped continuation turns.
+- [x] **13.4a CLI and reports.** Files: `benchrig/cli/__init__.py`,
+  `benchrig/cli/_common.py`, `benchrig/cli/run.py`, `benchrig/cli/compare.py`, `benchrig/reporting/common.py`,
+  `benchrig/reporting/display.py`, `benchrig/reporting/markdown.py`,
+  `benchrig/reporting/csv_export.py`, `benchrig/reporting/charts.py`,
+  `tests/test_tool_use_reports.py`, `tests/test_cli_dispatch.py` (update help snapshot).
+  Tests: `test_tool_suite_is_opt_in_and_all_is_unchanged`,
+  `test_reports_render_counts_and_unavailable_rates`,
+  `test_tool_only_scorecards_have_no_fabricated_composite`,
+  `test_csv_appends_tool_columns_preserving_existing_columns`,
+  `test_charts_distinguish_tool_success_from_composite`,
+  `test_progress_counts_scenario_repetitions_not_turns_or_warmups`.
+- [x] **13.4b Documentation and changelog.** Files: `docs/benchmark-suites.md`,
+  `docs/cli.md`, `docs/runtimes.md`, `README.md`, `CHANGELOG.md`.
+  Verification: existing `tests/test_docs.py`, all new hermetic tests, full SDLC
+  gate, package build and independent review. Describe `--suite tool_use --runs 3`,
+  fixture-only calls, backend coverage, metric denominators and timing limitations.
+- [ ] **13.5 Live results / harness decision (deferred).** Files: future dated
+  `docs/analysis/` note and `mkdocs.yml`; scenarios/protocol above. Requires a
+  separate operator request with selected model/runtime pairs and agreed thresholds.
+  Verification: raw local run artifacts with versions/settings/counts/coverage;
+  no implementation or live run authorized by planning this phase.
 
-- [ ] <!-- Item 13.2: Client support for `tools` and `tool_calls`.
-         Files: benchrig/core/client.py (Ollama), benchrig/core/runtimes.py (Prism OpenAI-compatible path),
-                benchrig/core/runner.py. Not ONNX-direct unless it exposes a tool channel (else mark `unsupported`).
-         Parse structured `tool_calls` from both response shapes (Ollama `message.tool_calls[].function.arguments` is an
-         object; OpenAI/Prism returns `arguments` as a JSON string). Record separately: `structured_call`, `json_in_content`
-         (detected, never counted as a pass), `refusal_text`, HTTP 400 "does not support tools" -> `unsupported`.
-         Test: fake-server tests for both shapes, the content-JSON case, the 400 case and a malformed-arguments case.
-         Status: proposed. -->
+Risks and decisions proposed for approval:
 
-- [ ] <!-- Item 13.3: Scorer.
-         Files: benchrig/core/runner.py (or a new scorer module), tests/.
-         Per scenario: pass requires correct tool name AND all expected args matching AND correct types. Aggregate metrics
-         per model: selection accuracy, argument accuracy, abstention rate (correct no-call), false-call rate, structured-
-         call rate, and latency (reuse TTFT/decode fields). Multi-step: score each turn, fail on first wrong turn.
-         Use repeated runs (`--repeat`, default 3 at temperature 0 and a nonzero-temperature variant) and report
-         pass counts, not a single flaky boolean.
-         Test: table-driven scorer tests incl. string-vs-integer args, extra args, reordered args.
-         Status: proposed. -->
-
-- [ ] <!-- Item 13.4: Reporting and a `tool_use` suite flag.
-         Files: benchrig/reporting/ (markdown, CSV, charts), benchrig/cli.py, docs/benchmark-suites.md, docs/cli.md.
-         New suite name `tool_use`; leaderboard columns for the metrics above; `unsupported` shown as `n/a`.
-         Test: report-rendering tests with fixture records (hermetic).
-         Status: proposed. -->
-
-- [ ] <!-- Item 13.5: Decision gate for the 06 harness (documentation, not code).
-         Files: docs/ (short results note after a real run).
-         Run the suite on the installed models via Ollama and Prism; record which, if any, clear an agreed threshold
-         (to be set by the operator before the run, e.g. selection >= 90% and false-call <= 10%). Feeds the go/no-go for a
-         tool-using `~/06-dark-factory` harness and `~/07-rag` as a tool.
-         Status: proposed; needs real hardware (opt-in marker like the other live tests). -->
-
-Risks and open questions:
-
-- Ollama's chat template, not the model, may decide whether `tool_calls` is populated (the qwen2.5-coder case). Results are therefore per (model, runtime) pair; do not generalize a model's score across runtimes.
-- Thresholds in 13.5 are an operator decision; the probe above is too small to set them.
-- Scope: this measures tool-calling reliability, not retrieval quality. An embedding/retrieval suite stays in the Backlog.
-- Per the `plan.md` header rule, **no item may start implementation until `spec.md` is updated** and the operator approves it.
-- `plan.md` already had uncommitted Phase 12 edits when this phase was added; they are unrelated and untouched.
+- Opt-in suite, existing `--runs` default 1, documented recommendation 3; no new
+  `--repeat` flag or automatic nonzero-temperature experiment.
+- Initial non-streaming transports expose honest wall-time latency; unavailable
+  TTFT/decode remain null. Streaming tool fragments are outside this first version.
+- Foundry is included with Ollama and Prism; direct ONNX is unsupported via its
+  current adapter. Capability errors must be distinguished from generic bad requests.
+- Rates are per (model,runtime); templates/quantization/runtime versions matter.
+  Do not generalize results across engines or certify determinism from a seed.
+- Appended CSV columns require explicit approval under I1. Composite weights,
+  defaults and legacy suite metrics remain unchanged; tool-only null rendering
+  is required across all reporters, including chart exports.
+- Multi-step calls use inert fixtures and stop after first mismatch. Abstention
+  checks require a correct plain answer, so a refusal is not rewarded as no-call.
+- Local Prism checkout from older notes is unavailable at its recorded path;
+  hermetic fixtures establish client behavior, not deployed compatibility.
+- No live benchmarks, cross-repo changes, commits, pushes or releases until
+  explicitly requested. Nonzero-temperature variants and 13.5 thresholds deferred.
 
 
 ## Adversarial review follow-up — 2026-10-02
@@ -962,3 +991,41 @@ Risks and open questions:
 - Quant names (Q4_K_M, IQ2) are llama.cpp/GGUF concepts; Prism/ONNX int4 is not directly comparable (see Phase 4 and the
   ONNX-int4-vs-Ollama open item in `scratch/TODO.md` §4).
 - Per the `plan.md` header rule, **no item may start implementation until `spec.md` is updated** and the operator approves it.
+
+
+## CI Python 3.10 dependency-install fix — 2026-10-04
+
+Status: authorized by operator's CI failure report; dependency marker implemented,
+regression red-proven, full gate exit 0 (469 passed, 4 skipped); pending final
+independent review with the active change. Phase 13.1 is implemented/green (468 passed,
+4 skipped, 4 subtests passed); phase 13 resumes after this fix.
+
+- [x] **CI3.10** Gate the kit dev requirement on Python >=3.11. Files:
+  `pyproject.toml`, `tests/test_ci_dependencies.py`, `CHANGELOG.md`, `spec.md`,
+  `plan.md`. Test: `test_kit_dependency_excludes_python310_and_includes_python311`.
+  Verification: red-first, full gate, independent review. Actual GitHub run is
+  external evidence, not claimed by local marker verification.
+
+
+## Methodology feedback — Rafał Warzycha, 2026-10-04
+
+Status: operator requested recording the feedback; documented in
+`docs/tutorials/cross-engine-benchmarking.md`. Separate weights/kernel warm-up
+from steady-state prefix KV reuse. Record load/prefill/decode independently of
+TTFT; compare identical-prefix second requests at fixed cache type/context.
+A future explicit cache-controlled experiment needs its own specification and
+backend capability verification; no new cache-hit claim or invariant change.
+
+
+### Phase 13 final verification — 2026-10-04
+
+Implementation and independent review complete: `/root/review_tool_core` (48 focused
+tests) and `/root/review_tool_reports` (31 tests, 4 subtests) found no remaining
+actionable findings after fixes. Full gate exit 0: 516 passed, 4 skipped,
+4 subtests passed; lint/format/changelog PASS. Review regressions cover capacity
+suppression, request timing, raw telemetry, malformed usage, nonfinite arguments
+and pair-selected suite preflight. Actual Python 3.10 execution and live runtime
+experiments remain unverified; marker regression is hermetic. No shipping requested.
+
+Final package build: `.venv/bin/python -m build` exit 0; wheel and sdist
+built successfully with approved build-network escalation.

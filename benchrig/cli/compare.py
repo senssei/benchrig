@@ -90,8 +90,9 @@ def run_compare_mode(compare_path: str, output_dir: str, clients: dict[str, Base
     _cli_pkg._lookup("display_leaderboard")(scorecards, specs=specs)
     _cli_pkg._lookup("display_token_savings")(scorecards)
 
-    if len(scorecards) >= 2:
-        _cli_pkg._lookup("show_1to1_comparison")(scorecards, results, specs, output_dir)
+    legacy_cards = [sc for sc in scorecards if sc.get("composite_score") is not None]
+    if len(legacy_cards) >= 2:
+        _cli_pkg._lookup("show_1to1_comparison")(legacy_cards, results, specs, output_dir)
 
 
 def load_baseline(path: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
