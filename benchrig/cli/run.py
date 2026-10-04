@@ -127,6 +127,73 @@ def build_scorecards(
     return scorecards
 
 
+def validate_cache_probe(args, selected_runtime: str, scenarios: list[dict]) -> str:
+    """Validate a probe without connecting to a model or runtime."""
+    if args.suite != "speed" or args.pair or args.baseline or args.compare or args.check or args.pull_recommended:
+        raise ValueError("--cache-probe requires --suite speed and cannot use pair/baseline/compare/check/pull modes")
+    if args.runs <= 0 or selected_runtime == "all":
+        raise ValueError("--cache-probe requires positive --runs and one runtime")
+    model = args.models.strip()
+    if not model or model in ("installed", "all") or "," in model:
+        raise ValueError("--cache-probe requires one explicit --models value")
+    if ":" in model and model.split(":", 1)[0] in ("ollama", "foundry", "onnx-gpu", "prism"):
+        runtime, model = model.split(":", 1)
+        if runtime != selected_runtime or not model:
+            raise ValueError("--cache-probe model prefix must match selected runtime")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise ValueError("cache probe needs a nonempty speed.json scenario list")
+    for scenario in scenarios:
+        if not isinstance(scenario, dict) or not all(
+            isinstance(scenario.get(k), str) and scenario[k] for k in ("id", "name", "prompt")
+        ):
+            raise ValueError("cache probe scenarios require id, name and prompt")
+        options = scenario.get("options")
+        if not isinstance(options, dict) or type(options.get("num_ctx")) is not int or options["num_ctx"] <= 0:
+            raise ValueError("cache probe requires explicit positive num_ctx in every speed scenario")
+    return model
+
+
+def run_cache_probe(args, config: dict, clients: dict, selected_runtime: str) -> None:
+    """Run an explicitly selected paired probe and persist evidence without scorecards."""
+    client = clients[selected_runtime]
+    model = validate_cache_probe(args, selected_runtime, args.cache_probe_scenarios)
+    runner = BenchmarkRunner(client, config)
+    specs = _cli_pkg._lookup("get_system_specs")(client=client)
+    started = time.monotonic()
+    try:
+        if not client.load_model(model):
+            raise ValueError(f"model startup failed: {selected_runtime}:{model}")
+        results = runner.run_cache_probe(model, args.cache_probe_scenarios, runs=args.runs)
+    except Exception as exc:
+        results = [
+            {
+                "suite": "cache_probe",
+                "model": model,
+                "runtime": selected_runtime,
+                "phase": "startup",
+                "success": False,
+                "error": f"startup/probe failure: {exc}",
+                "runtime_state": "unverified",
+                "prefix_cache_state": "unverified",
+                "comparable": False,
+                "comparison_reasons": ["startup/probe failure"],
+            }
+        ]
+    finally:
+        client.unload_model(model)
+    markdown, raw_json = _cli_pkg._lookup("save_outputs")(
+        args.output_dir,
+        specs,
+        [],
+        results,
+        time.monotonic() - started,
+        csv_path=args.csv,
+        chart_path=args.chart,
+        config=config,
+    )
+    _cli_pkg._lookup("console").print(f"Cache probe evidence: {raw_json}\nReport: {markdown}")
+
+
 def run_benchmarks(
     args: argparse.Namespace,
     config: dict[str, Any],

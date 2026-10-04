@@ -34,7 +34,9 @@ def save_outputs(
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(f"{output_dir}/runs", exist_ok=True)
-    raw_json_path = f"{output_dir}/runs/benchmark_{timestamp}.json"
+    probe_only = bool(results) and all(record.get("suite") == "cache_probe" for record in results)
+    prefix = "cache_probe" if probe_only else "benchmark"
+    raw_json_path = f"{output_dir}/runs/{prefix}_{timestamp}.json"
 
     with open(raw_json_path, "w", encoding="utf-8") as f:
         json.dump(
@@ -48,10 +50,12 @@ def save_outputs(
             f,
             indent=2,
         )
-    with open(f"{output_dir}/latest.json", "w", encoding="utf-8") as f:
+    latest_name = "cache_probe_latest.json" if probe_only else "latest.json"
+    with open(f"{output_dir}/{latest_name}", "w", encoding="utf-8") as f:
         json.dump({"timestamp": timestamp, "scorecards": scorecards}, f, indent=2)
 
-    md_report_path = f"{output_dir}/LATEST_SUMMARY.md"
+    summary_name = "CACHE_PROBE_SUMMARY.md" if probe_only else "LATEST_SUMMARY.md"
+    md_report_path = f"{output_dir}/{summary_name}"
     md_dir = os.path.dirname(md_report_path) or "."
 
     if csv_path:

@@ -70,6 +70,8 @@ def spread_lines(scorecards: list[dict[str, Any]]) -> list[str]:
 
         def span(key: str, unit: str = "", digits: int = 1, spread: dict = spread) -> str:
             low, high = spread[key]
+            if low is None or high is None:
+                return "n/a"
             return f"{low:.{digits}f}{unit}" if low == high else f"{low:.{digits}f}-{high:.{digits}f}{unit}"
 
         lines.append(
@@ -166,3 +168,8 @@ def tool_report_rows(scorecards):
             )
         )
     return rows
+
+
+def format_ttft(value: float | None) -> str:
+    """Render unavailable first-token latency without inventing zero."""
+    return "n/a" if value is None else f"{value:.2f}s"

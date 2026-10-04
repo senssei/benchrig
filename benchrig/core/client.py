@@ -304,7 +304,8 @@ class BaseRuntimeClient:
             "response": "",
             "eval_tok_per_sec": 0.0,
             "prompt_tok_per_sec": 0.0,
-            "ttft_sec": 0.0,
+            "ttft_sec": None,
+            "ttft_provenance": "unavailable",
             "total_time_sec": round(time.perf_counter() - start_time, 3),
         }
 
@@ -533,10 +534,8 @@ class OllamaClient(BaseRuntimeClient):
         eval_tok_sec_floored = False
 
         # Time to the first token of any kind, so a thinking model's latency is not its thinking time; the first *answer*
-        # token is reported separately. With no token at all (non-streaming) the engine's prompt evaluation time stands in.
-        ttft_sec = (
-            round(first_token_time - start_wall_time, 3) if first_token_time else round(prompt_eval_dur_ns / 1e9, 3)
-        )
+        # token is reported separately. Without a measured token, TTFT is unavailable.
+        ttft_sec = round(first_token_time - start_wall_time, 3) if first_token_time is not None else None
         answer_ttft_sec = round(first_answer_time - start_wall_time, 3) if first_answer_time else None
         prefill_eff_tok_sec = round(prompt_eval_count / ttft_sec, 2) if (ttft_sec and ttft_sec > 0) else 0.0
 
@@ -574,6 +573,8 @@ class OllamaClient(BaseRuntimeClient):
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
             "prefill_duration_sec": round(prefill_dur_sec, 4) if prefill_dur_sec is not None else None,
             "decode_duration_sec": round(decode_dur_sec, 4),
+            "decode_provenance": "engine" if eval_dur_ns > 0 else "client",
+            "ttft_provenance": "client" if first_token_time is not None else "unavailable",
             "prefill_provenance": prefill_provenance,
             "prefill_eff_tok_sec": prefill_eff_tok_sec,
             "prefill_eff_tok_per_sec": prefill_eff_tok_sec,
@@ -582,7 +583,7 @@ class OllamaClient(BaseRuntimeClient):
             "answer_ttft_sec": answer_ttft_sec,
             "thinking_chars": thinking_chars,
             "think": payload.get("think"),
-            "load_time_sec": round(load_dur_ns / 1e9, 3),
+            **_generation_evidence(final_metrics, native=True),
             "total_time_sec": round(
                 total_dur_ns / 1e9 if total_dur_ns > 0 else (end_wall_time - start_wall_time),
                 3,
@@ -591,12 +592,36 @@ class OllamaClient(BaseRuntimeClient):
             "observed_device": observed_device,
             "cpu_fallback": cpu_fallback,
             "raw_metrics": {
+                "server_metrics": dict(final_metrics),
                 "total_duration": total_dur_ns,
                 "load_duration": load_dur_ns,
                 "prompt_eval_duration": prompt_eval_dur_ns,
                 "eval_duration": eval_dur_ns,
             },
         }
+
+
+def _generation_evidence(metrics: dict | None, *, native: bool = False) -> dict:
+    """Normalize only explicit server evidence; missing fields remain unknown."""
+    metrics = metrics or {}
+    load = metrics.get("load_duration") if native else metrics.get("load_time_sec")
+    valid_load = type(load) in (int, float) and math.isfinite(load) and load >= 0
+    hit = metrics.get("prefix_cache_hit")
+    context = metrics.get("context_tokens")
+    cache_type = metrics.get("cache_type")
+    return {
+        "load_time_sec": load / 1e9 if native and valid_load else load if valid_load else None,
+        "load_provenance": "engine" if valid_load else "unavailable",
+        "prefix_cache_hit": hit if type(hit) is bool else None,
+        "cache_evidence": dict(metrics) if metrics else None,
+        "runtime_initialized": metrics.get("runtime_initialized")
+        if type(metrics.get("runtime_initialized")) is bool
+        else None,
+        "observed_cache_type": cache_type if isinstance(cache_type, str) and cache_type else None,
+        "observed_context_tokens": context if type(context) is int and context > 0 else None,
+        "runtime_version": metrics.get("runtime_version"),
+        "model_version": metrics.get("model_version"),
+    }
 
 
 class FoundryClient(BaseRuntimeClient):
@@ -1137,11 +1162,13 @@ class FoundryClient(BaseRuntimeClient):
             "prompt_tok_per_sec": round(prompt_tok_sec, 2),
             "prefill_duration_sec": prefill_duration_sec,
             "decode_duration_sec": decode_duration_sec,
+            "decode_provenance": "client",
+            "ttft_provenance": "client" if first_token_time is not None else "unavailable",
             "prefill_provenance": prefill_provenance,
             "prefill_eff_tok_sec": prefill_eff_tok_sec,
             "prefill_eff_tok_per_sec": prefill_eff_tok_sec,
-            "ttft_sec": round(ttft_sec, 3),
-            "load_time_sec": 0.0,
+            "ttft_sec": round(ttft_sec, 3) if first_token_time is not None else None,
+            **_generation_evidence(reported_telemetry),
             "total_time_sec": round(total_time_sec, 3),
             "requested_device": requested_device,
             "observed_device": observed_device,

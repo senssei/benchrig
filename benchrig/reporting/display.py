@@ -19,6 +19,7 @@ from benchrig.reporting.common import (
     EFFICIENCY_NOTE,
     TOOL_HEADERS,
     efficiency_rows,
+    format_ttft,
     spread_lines,
     status_rich,
     tool_report_rows,
@@ -149,7 +150,7 @@ def display_leaderboard(scorecards: list[dict[str, Any]], specs: dict[str, str] 
             f"{sc['reasoning_accuracy']:.1f}%",
             f"{sc['avg_eval_tok_sec']:.1f} t/s",
             f"{scorecard_prefill(sc):.1f} t/s",
-            f"{sc['avg_ttft_sec']:.2f}s",
+            format_ttft(sc["avg_ttft_sec"]),
             f"{sc['peak_vram_mb']:.0f} MB",
             f"{model_mem:.0f} MB" if model_mem is not None else "-",
             fit_status,
@@ -340,12 +341,14 @@ def display_1to1_comparison(
 
     ttft_a = sc_a.get("avg_ttft_sec", 0.0)
     ttft_b = sc_b.get("avg_ttft_sec", 0.0)
-    ttft_adv = (
-        f"{name_a} {ttft_b / ttft_a:.1f}x lower"
-        if ttft_a > 0 and ttft_a <= ttft_b
-        else (f"{name_b} {ttft_a / ttft_b:.1f}x lower" if ttft_b > 0 else "N/A")
-    )
-    table.add_row("Avg TTFT (Latency)", f"{ttft_a:.2f}s", f"{ttft_b:.2f}s", f"[cyan]{ttft_adv}[/]")
+    ttft_adv = "N/A"
+    if ttft_a is not None and ttft_b is not None:
+        ttft_adv = (
+            f"{name_a} {ttft_b / ttft_a:.1f}x lower"
+            if ttft_a > 0 and ttft_a <= ttft_b
+            else (f"{name_b} {ttft_a / ttft_b:.1f}x lower" if ttft_b > 0 else "N/A")
+        )
+    table.add_row("Avg TTFT (Latency)", format_ttft(ttft_a), format_ttft(ttft_b), f"[cyan]{ttft_adv}[/]")
 
     code_a = sc_a.get("coding_pass_rate", 0.0)
     code_b = sc_b.get("coding_pass_rate", 0.0)

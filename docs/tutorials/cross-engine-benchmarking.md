@@ -224,10 +224,10 @@ Benchmarking steady-state inference performance requires separating cold-start l
 - **Warm-up Flag (`--warmup-runs N`, default 1)**: Executes `N` warm-up requests per scenario prior to recording benchmark timings.
 - **Strict Average Isolation**: Warm-up records carry `phase="warmup"` and are strictly excluded from scorecard averages (`avg_eval_tok_sec`, `avg_ttft_sec`, and composite scores).
 - **Cache Mode Protocol (`cache_mode`)**:
-  - `"cold"`: Cold-start request immediately after model loading.
-  - `"warm"`: Steady-state execution with resident weights in accelerator memory, without KV cache reuse.
-  - `"prefix_cached"`: Prompt prefix cache reuse verified through backend telemetry (e.g., Ollama zero-eval-duration prefill `prompt_eval_count == 0` or Prism cache telemetry).
-  - `"unverified"`: Repeated identical workload where prefix cache reuse is unsupported or unconfirmed by the runtime.
+  - `"cold"`: Explicit backend evidence reports initialization during this request, and a prefix miss is verified.
+  - `"warm"`: Runtime warm-up succeeded and a prefix miss is verified.
+  - `"prefix_cached"`: An explicit boolean cache-hit field in server telemetry verifies prefix reuse. Zero prefill count alone does not prove a hit.
+  - `"unverified"`: Prefix reuse or runtime state lacks sufficient evidence. Request order alone cannot establish cold/warm state.
 
 
 
@@ -249,3 +249,44 @@ runtime initialization and verified prefix reuse.
 
 This feedback describes the desired comparison protocol; it does not establish
 that every backend currently exposes cache type or engine timing components.
+
+
+### Controlled paired cache probe
+
+Use `--cache-probe --suite speed --models MODEL --runtime RUNTIME --runs 3`
+with a custom `speed.json` selected through `--scenarios-dir`. Each scenario must
+include a positive `options.num_ctx`; bundled speed scenarios do not specify it.
+BenchRig warms the runtime with a different prompt at those same effective settings,
+then issues the scenario prompt twice unchanged for each pair. There is no cache
+reset between requests or repetitions, so the first request may already be cached.
+`--warmup-runs` does not add scenario iterations to this mode; the probe has its own
+single runtime warm-up per scenario.
+
+Records separate `runtime_state` from `prefix_cache_state`. Paired requests retain
+prompt hashes, pair IDs, positions, settings, versions where exposed, raw telemetry
+and timing provenance. `load_time_sec` is an engine load measurement; startup request
+wall time is a separate quantity and may include load, prefill and generation.
+Missing load timing is unavailable, including direct ONNX request timing when the
+model was loaded before generation. Historical files retain their original labels.
+
+A controlled comparison requires two successful requests and an unchanged observed
+cache type and context matching the requested window. Missing settings, failures or
+changes produce an unverified comparison with reasons. Explicit cache-hit telemetry
+is additionally required to claim prefix reuse. The normalized server fields are
+`prefix_cache_hit` (boolean), `cache_type` (string) and `context_tokens` (positive
+integer window size), in native final metrics or OpenAI-compatible telemetry.
+Backends that do not expose those fields remain unverified; faster responses and
+zero prefill tokens are insufficient. No deployed backend support is certified by
+fixture tests. BenchRig observes configuration; it does not change daemon settings,
+clear caches or restart servers.
+
+The dedicated Markdown report lists load, prefill, decode and client TTFT separately
+with provenance, plus pair status and missing evidence. Probe records do not enter
+legacy scores or averages. Keep the logging level fixed across comparisons; the
+existing INFO/DEBUG logging overhead remains inside parts of the timing window.
+Live evidence and conclusions require a separately selected model/runtime run.
+
+A positive backend load/setup duration alone does not prove model initialization;
+`runtime_initialized: true` is required for a cold classification. Probe output uses
+`CACHE_PROBE_SUMMARY.md`, `cache_probe_latest.json` and `runs/cache_probe_*.json`,
+preserving normal benchmark summaries. Startup failures also produce diagnostics.

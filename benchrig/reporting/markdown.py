@@ -19,6 +19,7 @@ from benchrig.reporting.common import (
     EFFICIENCY_NOTE,
     TOOL_HEADERS,
     efficiency_rows,
+    format_ttft,
     spread_lines,
     status_markdown,
     tool_report_rows,
@@ -40,6 +41,82 @@ def format_eval_tok_sec(scorecard: dict[str, Any]) -> str:
     return rendered
 
 
+def cache_probe_report(records: list[dict]) -> str:
+    """Render evidence without treating paired requests as benchmark scorecards."""
+
+    def cell(value):
+        return str(value if value is not None else "unavailable").replace("|", "\\|").replace("\n", " ")
+
+    def timing(value):
+        return "unavailable" if value is None else f"{value:.3f}"
+
+    lines = [
+        "# Cache probe",
+        "",
+        "Runtime warm-up and prefix reuse are independent. The first paired request is not assumed to be a cache miss.",
+        "Comparable means the observed context and cache type stayed fixed; it does not prove a cache hit.",
+        "Missing versions, settings and timings are unavailable. Requests retain raw server evidence in the run JSON.",
+        "",
+    ]
+    for record in records:
+        if record.get("phase") == "warmup":
+            lines.append(
+                f"Warm-up: {cell(record.get('model'))} / {cell(record.get('test_id'))}: {'ok' if record.get('success') else cell(record.get('error'))}"
+            )
+    pairs = {}
+    for record in records:
+        if record.get("phase") != "warmup":
+            pairs.setdefault(record.get("pair_id"), []).append(record)
+    for pair_id, pair in pairs.items():
+        first = pair[0]
+        lines.extend(
+            [
+                "",
+                f"## Pair {cell(pair_id)}",
+                "",
+                f"Model/runtime: {cell(first.get('model'))} / {cell(first.get('runtime'))}; scenario: {cell(first.get('test_id'))}",
+                f"Versions: model {cell(first.get('model_version'))}; runtime {cell(first.get('runtime_version'))}",
+                f"Prompt SHA-256: `{cell(first.get('prompt_sha256'))}`; options: `{cell(first.get('options'))}`",
+                f"Session: {cell(first.get('session_scope'))}",
+                "",
+                "| Request | Status | Runtime state | Prefix state | Cache type | Context | Load (s) | Prefill (s) | Decode (s) | TTFT (s) |",
+                "|:---|:---|:---|:---|:---|:---|---:|---:|---:|---:|",
+            ]
+        )
+        for record in pair:
+            values = [
+                record.get("request_position"),
+                "ok" if record.get("success") else record.get("error"),
+                record.get("runtime_state"),
+                record.get("prefix_cache_state"),
+                record.get("observed_cache_type"),
+                record.get("observed_context_tokens"),
+                *(
+                    timing(record.get(key))
+                    for key in ("load_time_sec", "prefill_duration_sec", "decode_duration_sec", "ttft_sec")
+                ),
+            ]
+            lines.append("| " + " | ".join(cell(value) for value in values) + " |")
+        for record in pair:
+            lines.append("")
+            lines.append(
+                f"Request {cell(record.get('request_position'))} provenance: load {cell(record.get('load_provenance'))}; prefill {cell(record.get('prefill_provenance'))}; decode {cell(record.get('decode_provenance'))}; TTFT {cell(record.get('ttft_provenance'))}. Cache evidence: `{cell(record.get('cache_evidence'))}`."
+            )
+        reasons = sorted({reason for record in pair for reason in record.get("comparison_reasons", [])})
+        lines.extend(
+            [
+                "",
+                "Comparison: "
+                + (
+                    "settings verified"
+                    if all(r.get("comparable") for r in pair)
+                    else "unverified: " + "; ".join(reasons)
+                ),
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
 def generate_markdown_report(
     scorecards: list[dict[str, Any]],
     raw_results: list[dict[str, Any]],
@@ -57,6 +134,13 @@ def generate_markdown_report(
     to ``None`` so callers that did not produce the artifact do not get a broken link (spec.md I2).
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    probe_records = [record for record in raw_results if record.get("suite") == "cache_probe"]
+    if probe_records and not scorecards:
+        content = cache_probe_report(probe_records)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return content
+    raw_results = [record for record in raw_results if record.get("suite") != "cache_probe"]
     tool_rows = tool_report_rows(scorecards)
     scorecards = [sc for sc in scorecards if sc.get("composite_score") is not None]
     ranked = sorted(scorecards, key=lambda x: x.get("composite_score", 0), reverse=True)
@@ -155,7 +239,7 @@ def generate_markdown_report(
         )
     if fastest_speed:
         lines.append(
-            f"- ⚡ **Fastest Generation Speed**: **`{fastest_speed['model']}`** [{fastest_speed.get('runtime', 'ollama')}] (**{fastest_speed['avg_eval_tok_sec']:.1f} tok/s**, TTFT: {fastest_speed['avg_ttft_sec']:.2f}s)"
+            f"- ⚡ **Fastest Generation Speed**: **`{fastest_speed['model']}`** [{fastest_speed.get('runtime', 'ollama')}] (**{fastest_speed['avg_eval_tok_sec']:.1f} tok/s**, TTFT: {format_ttft(fastest_speed['avg_ttft_sec'])})"
         )
 
     if is_mac:
@@ -221,7 +305,7 @@ def generate_markdown_report(
         model_mem = sc.get("vram_model_mb")
         model_mem_cell = f"{model_mem:.0f} MB" if model_mem is not None else "-"
         lines.append(
-            f"| {medal} | {model_cell} | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {format_eval_tok_sec(sc)} | {scorecard_prefill(sc):.1f} t/s | {sc['avg_ttft_sec']:.2f}s | {sc['peak_vram_mb']:.0f} MB | {model_mem_cell} | {vram_status} |"
+            f"| {medal} | {model_cell} | `{rt_display}` | {engine_display} | **{sc['composite_score']:.1f}** | {sc['coding_pass_rate']:.1f}% | {sc['reasoning_accuracy']:.1f}% | {format_eval_tok_sec(sc)} | {scorecard_prefill(sc):.1f} t/s | {format_ttft(sc['avg_ttft_sec'])} | {sc['peak_vram_mb']:.0f} MB | {model_mem_cell} | {vram_status} |"
         )
 
     lines.extend(["", f"*{PREFILL_NOTE}*", "", f"*{MODEL_MEMORY_NOTE}*"])
@@ -296,10 +380,10 @@ def generate_markdown_report(
         avg_foundry_speed = (
             sum(sc.get("avg_eval_tok_sec", 0) for sc in foundry_scs) / len(foundry_scs) if foundry_scs else 0.0
         )
-        avg_ollama_ttft = sum(sc.get("avg_ttft_sec", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
-        avg_foundry_ttft = (
-            sum(sc.get("avg_ttft_sec", 0) for sc in foundry_scs) / len(foundry_scs) if foundry_scs else 0.0
-        )
+        ollama_ttfts = [sc["avg_ttft_sec"] for sc in ollama_scs if sc.get("avg_ttft_sec") is not None]
+        foundry_ttfts = [sc["avg_ttft_sec"] for sc in foundry_scs if sc.get("avg_ttft_sec") is not None]
+        avg_ollama_ttft = sum(ollama_ttfts) / len(ollama_ttfts) if ollama_ttfts else None
+        avg_foundry_ttft = sum(foundry_ttfts) / len(foundry_ttfts) if foundry_ttfts else None
         avg_ollama_pass = (
             sum(sc.get("coding_pass_rate", 0) for sc in ollama_scs) / len(ollama_scs) if ollama_scs else 0.0
         )
@@ -309,7 +393,7 @@ def generate_markdown_report(
         lines.extend(
             [
                 f"| **Average Decode Speed** | {avg_ollama_speed:.1f} t/s | {avg_foundry_speed:.1f} t/s |",
-                f"| **Average Time to First Token (TTFT)** | {avg_ollama_ttft:.2f}s | {avg_foundry_ttft:.2f}s |",
+                f"| **Average Time to First Token (TTFT)** | {format_ttft(avg_ollama_ttft)} | {format_ttft(avg_foundry_ttft)} |",
                 f"| **Average Coding Pass Rate** | {avg_ollama_pass:.1f}% | {avg_foundry_pass:.1f}% |",
                 f"| **Evaluated Models** | {len(ollama_scs)} | {len(foundry_scs)} |",
             ]
@@ -409,7 +493,7 @@ def generate_markdown_report(
             prompt_tokens = r.get("prompt_tokens_actual", r.get("prompt_eval_count", 0))
             lines.append(
                 f"| `{r['model']}` | {r.get('context_size', 0)} tok | {prompt_tokens} | {found} | {record_prefill(r):.1f} t/s | "
-                f"{r.get('eval_tok_per_sec', 0):.1f} t/s | {r.get('ttft_sec', 0):.2f}s | {v_peak:.0f} MB | {v_pct:.1f}% |"
+                f"{r.get('eval_tok_per_sec', 0):.1f} t/s | {format_ttft(r.get('ttft_sec'))} | {v_peak:.0f} MB | {v_pct:.1f}% |"
             )
 
     lines.extend(
@@ -471,6 +555,8 @@ def generate_markdown_report(
                     f"| {record['model']} | {record['test_id']} | {record.get('run', 0)} | {label} | {passed}/{len(record.get('turns', []))} | {record.get('first_failure')} |"
                 )
 
+    if probe_records:
+        lines.extend(["", cache_probe_report(probe_records)])
     content = "\n".join(lines)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -553,11 +639,13 @@ def generate_1to1_comparison_report(
             else f"`{rt_b}` is **{pref_b / pref_a:.1f}x faster**"
         )
         + " |",
-        f"| **Time to First Token (TTFT)** | **{ttft_a:.2f}s** | **{ttft_b:.2f}s** | "
+        f"| **Time to First Token (TTFT)** | **{format_ttft(ttft_a)}** | **{format_ttft(ttft_b)}** | "
         + (
             f"`{rt_a}` has **{ttft_b / ttft_a:.1f}x lower latency**"
-            if ttft_a > 0 and ttft_a <= ttft_b
+            if ttft_a is not None and ttft_b is not None and ttft_a > 0 and ttft_a <= ttft_b
             else f"`{rt_b}` has lower latency"
+            if ttft_a is not None and ttft_b is not None
+            else "n/a"
         )
         + " |",
         f"| **Coding Unit Test Pass Rate** | **{code_a:.1f}%** | **{code_b:.1f}%** | "
@@ -628,8 +716,8 @@ def generate_1to1_comparison_report(
             "## 💡 Architectural Insights & Trade-offs",
             "",
             "1. **Execution Provider & Acceleration**:",
-            f"   - **{rt_a} (`{eng_a}`)**: Evaluated via CUDA kernels on host GPU ({vram_a:.0f} MB peak VRAM, {spd_a:.1f} tok/s decode, {ttft_a:.2f}s TTFT).",
-            f"   - **{rt_b} (`{eng_b}`)**: Evaluated via {'CUDA Execution Provider (GPU)' if is_b_gpu else 'CPU Execution Provider'} ({vram_b:.0f} MB peak memory, {spd_b:.1f} tok/s decode, {ttft_b:.2f}s TTFT).",
+            f"   - **{rt_a} (`{eng_a}`)**: Evaluated via CUDA kernels on host GPU ({vram_a:.0f} MB peak VRAM, {spd_a:.1f} tok/s decode, {format_ttft(ttft_a)} TTFT).",
+            f"   - **{rt_b} (`{eng_b}`)**: Evaluated via {'CUDA Execution Provider (GPU)' if is_b_gpu else 'CPU Execution Provider'} ({vram_b:.0f} MB peak memory, {spd_b:.1f} tok/s decode, {format_ttft(ttft_b)} TTFT).",
             "",
             "2. **Coding Quality Nuance**:",
             f"   - `{mod_b}` achieved {code_b:.1f}% test pass rate across evaluated unit test sandbox suites.",

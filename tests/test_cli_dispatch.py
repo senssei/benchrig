@@ -33,7 +33,7 @@ usage: benchrig [-h] [--version] [--config CONFIG]
                 [--runtime {ollama,foundry,onnx-gpu,prism,all}] [--check]
                 [--pull-recommended] [--models MODELS]
                 [--suite {all,speed,coding,reasoning,polish,context,tool_use}]
-                [--runs RUNS] [--warmup-runs WARMUP_RUNS]
+                [--cache-probe] [--runs RUNS] [--warmup-runs WARMUP_RUNS]
                 [--output-dir OUTPUT_DIR] [--compare COMPARE]
                 [--baseline BASELINE] [--pair PAIR] [--csv CSV]
                 [--chart CHART] [--log-level {DEBUG,INFO,WARNING,ERROR}]
@@ -60,6 +60,8 @@ options:
   --suite {all,speed,coding,reasoning,polish,context,tool_use}
                         Test suite selection (all, coding, reasoning, speed,
                         context, polish, tool_use)
+  --cache-probe         Compare paired identical speed requests with cache
+                        evidence
   --runs RUNS           Number of repetitions per test (default: 1)
   --warmup-runs WARMUP_RUNS
                         Number of warm-up iterations per scenario before

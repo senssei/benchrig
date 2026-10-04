@@ -104,3 +104,29 @@ tutorial; no new cache-hit or live benchmark claims. No commit or push.
 
 Final package build: `.venv/bin/python -m build` exit 0; wheel and sdist
 built successfully with approved build-network escalation.
+
+
+## Phase 16 review — 2026-10-04
+
+Fresh-context read-only reviewers `/root/review_cache_core` and
+`/root/review_cache_cli` reviewed Phase 16 artifacts and working diff including
+new tests. Six P2 findings resolved with red-first regressions: positive load/setup
+is not initialization proof; native telemetry must remain raw; absent first token
+is not engine-prefill TTFT; startup failure retains diagnostics; probe files must
+preserve legacy artifacts; null TTFT must not crash summary/spread/report paths.
+Final independent re-reviews found no actionable findings (47 core tests, 38
+CLI/report/timing tests independently passed). Failed request TTFT is unavailable,
+also red-proven and independently re-reviewed.
+
+Backend semantics checked against [Ollama GenerateHandler](https://raw.githubusercontent.com/ollama/ollama/main/server/routes.go):
+load_duration includes elapsed scheduling/setup, so explicit runtime initialization
+telemetry is required. Fixture tests do not establish deployed telemetry support.
+
+Author verification: `python3 scripts/sdlc_check.py` exit 0 (542 passed, 4 skipped,
+4 subtests; lint, format, changelog PASS); staged/unstaged `git diff --check` clean.
+`.venv/bin/python -m build` exit 0, wheel and sdist; strict Twine checks PASS.
+Build without isolation failed due to absent local setuptools; final isolated
+build used approved network escalation. Wheel smoke outside checkout exercised
+CLI through three paired fixture requests, JSON/Markdown output and preservation
+of prior legacy latest/summary artifacts. No live model benchmark or cache-hit
+certification performed; 16.4 deferred. No commit, push or release requested.

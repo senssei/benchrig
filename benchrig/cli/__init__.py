@@ -64,7 +64,7 @@ from benchrig.cli.compare import (
     show_1to1_comparison,
 )
 from benchrig.cli.report import save_outputs
-from benchrig.cli.run import build_scorecards, evaluate_model, run_benchmarks
+from benchrig.cli.run import build_scorecards, evaluate_model, run_benchmarks, run_cache_probe, validate_cache_probe
 from benchrig.core.client import BaseRuntimeClient, create_runtime_client
 from benchrig.core.hardware import get_system_specs
 from benchrig.core.logging import setup_logging
@@ -131,6 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["all", *SUITES],
         help="Test suite selection (all, coding, reasoning, speed, context, polish, tool_use)",
     )
+    parser.add_argument(
+        "--cache-probe", action="store_true", help="Compare paired identical speed requests with cache evidence"
+    )
     parser.add_argument("--runs", type=int, default=1, help="Number of repetitions per test (default: 1)")
     parser.add_argument(
         "--warmup-runs",
@@ -193,6 +196,17 @@ def main() -> None:
     _bootstrap_cuda_env()
     config = load_config(args.config)
 
+    selected_runtime = args.runtime or config.get("benchmark", {}).get("default_runtime", "ollama")
+    if args.cache_probe:
+        from benchrig.cli._common import load_scenario_file
+
+        path = os.path.join(resolve_scenarios_dir(args.scenarios_dir), "speed.json")
+        try:
+            args.cache_probe_scenarios = load_scenario_file(path)
+            validate_cache_probe(args, selected_runtime, args.cache_probe_scenarios)
+        except (ValueError, OSError) as exc:
+            parser.error(f"{path}: {exc}")
+
     effective_suite = args.suite
     if args.pair and effective_suite == "all":
         pair = next(
@@ -213,6 +227,10 @@ def main() -> None:
     clients: dict[str, BaseRuntimeClient] = {
         name: create_runtime_client(name, config) for name in ("ollama", "foundry", "onnx-gpu", "prism")
     }
+
+    if args.cache_probe:
+        _lookup("run_cache_probe")(args, config, clients, selected_runtime)
+        return
 
     if args.compare:
         _lookup("run_compare_mode")(args.compare, args.output_dir, clients)
@@ -248,6 +266,7 @@ __all__ = [
     "_VALID_LOG_LEVELS",
     # Command modules re-exported for the public surface
     "run_benchmarks",
+    "run_cache_probe",
     "run_system_check",
     "pull_recommended_models",
     "run_compare_mode",

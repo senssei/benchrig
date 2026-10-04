@@ -86,7 +86,9 @@ Risks and open questions:
 
 ## Phase 3: Operator-side releases (PyPI for benchrig, GitHub Pages, `senssei/local-coders`, prism-local 0.2.0)
 
-Status: not approved yet. These are operator actions, not code changes — they appear here so they are not lost between sessions, but they are not SDLC plan items in the code/test sense.
+Status: historical release checklist from 2026-09-21; local changelog now records
+0.1.0 and 0.2.0. External PyPI/Pages/repository state has not been reverified.
+Keep these entries as historical evidence, not current release instructions. These are operator actions, not code changes — they appear here so they are not lost between sessions, but they are not SDLC plan items in the code/test sense.
 
 - [ ] Trusted Publisher for `benchrig` on PyPI (`publish.yml`, environments `testpypi` and `pypi`), move `[Unreleased]` → dated entry in `CHANGELOG.md`, tag `v0.1.0`.
 - [ ] GitHub → Settings → Pages → source „GitHub Actions” for `benchrig` and `prism-local`.
@@ -684,8 +686,7 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
   a new suite type end-to-end (scenario shape, scoring, reporting columns), not just a client method.
 - **Tool-calling suite.** Prism's `/v1/chat/completions` accepts `tools`/`tool_choice` and returns `tool_calls`
   (including the `d143788` fix that turns a template render failure into a `400` instead of silently dropping
-  tools). Benchrig has no tool-use suite; would need scenario definitions with expected tool calls and a scorer.
-  Re-scoped as proposed Phase 13 (2026-10-01).
+  tools). Implemented as Phase 13.1–13.4 (2026-10-04); only live results 13.5 remain deferred.
 - **`PRISM_THREADS` as a benchrig-managed setting.** Currently a `prism serve` environment variable the operator
   sets by hand (documented in Phase 4 item 4.3); benchrig could in principle report or vary it per run, but that
   is server configuration, not a client request parameter.
@@ -802,7 +803,7 @@ Risks and open questions:
 
 ---
 
-## Phase 13: Tool-use suite (spec/plan drafted)
+## Phase 13: Tool-use suite (13.1–13.4 complete; 13.5 deferred)
 
 Status: implementation authorized by operator 2026-10-04 ("zatwierdzam") for
 13.1–13.4, including the additive I1 CSV contract change. Implementation green:
@@ -810,8 +811,8 @@ full gate exit 0 (516 passed, 4 skipped, 4 subtests passed; lint/format/changelo
 PASS). Red evidence: new scenario loading, client API, runner continuation,
 aggregation, legacy isolation, CSV columns and null-safe report tests observed
 failing before their implementation. Existing progress behavior retained and
-covered (test factory corrected to wire the callback). Next: package build and
-independent review; CI3.10 fix and requested methodology feedback included. Live experiments/threshold decision 13.5 remain deferred.
+covered (test factory corrected to wire the callback). Package build and independent review completed; see final verification below.
+CI3.10 fix and requested methodology feedback included. Live experiments/threshold decision 13.5 remain deferred.
 Supersedes the "Tool-calling suite" backlog bullet. Motivation: `~/06-dark-factory` may evolve into a tool-using harness
 (with `~/07-rag` as a `rag_search` tool); whether the local models can drive one is unmeasured.
 
@@ -968,8 +969,10 @@ Hypotheses to test (none verified yet):
 - [ ] <!-- Item 15.2: Record how much of a model ran on the GPU (partial offload fraction).
          Files: benchrig/core/client.py / benchrig/core/runtimes.py (read offloaded-layer info where the runtime exposes
                 it, e.g. Ollama `/api/ps` size vs size_vram), benchrig/reporting/markdown.py, benchrig/reporting/csv_export.py.
-         Builds on 14.1 (requested/observed placement): that item records provider/device and CPU fallback, but nothing
-         in the repo captures a *partial* GPU/CPU split, which is exactly the regime of H1/H3. Report as
+         Existing runner.measure_gpu_fit already reads Ollama size_vram / size into gpu_fit_pct,
+         records and scorecards; the efficiency table already renders it. Reuse that path and
+         audit missing exports/provenance rather than implementing the measurement again.
+         This is a byte residency ratio, not a measured layer or compute offload fraction. Report as
          "unavailable" (not 0%) when the runtime does not expose it.
          Test: fake-server tests for the exposed and not-exposed cases; markdown/CSV rendering tests (hermetic).
          Open question: LM Studio is the feedback's target runtime; benchrig has no LM Studio client. Decide whether to
@@ -1029,3 +1032,86 @@ experiments remain unverified; marker regression is hermetic. No shipping reques
 
 Final package build: `.venv/bin/python -m build` exit 0; wheel and sdist
 built successfully with approved build-network escalation.
+
+
+## Phase 16: Separate runtime warm-up from prefix reuse
+
+Status: implementation authorized by operator 2026-10-04 ("zatierdzam") for
+16.1–16.3 and the cache classification clarification. Completed and independently
+reviewed: six P2 findings fixed red-first and re-reviewed with no remaining findings.
+Final gate exit 0: 542 passed, 4 skipped, 4 subtests; lint/format/changelog PASS.
+Wheel/sdist build and strict Twine checks PASS; wheel CLI smoke outside checkout
+used fixture responses for three pairs and preserved legacy artifacts.
+16.4 live evidence remains deferred; no commit, push or live model run.
+
+- [x] **16.1 Runtime state and cache evidence.** Files: `benchrig/core/client.py`,
+  `benchrig/core/onnx_client.py`, `benchrig/core/runner.py`,
+  `tests/test_warmup_protocol.py`, `tests/test_timing_provenance.py`.
+  Tests: `test_first_scenario_after_model_warmup_is_not_cold`,
+  `test_unknown_cache_reuse_stays_unverified`,
+  `test_zero_prefill_count_without_cache_evidence_is_not_verified`,
+  `test_missing_load_timing_is_unavailable`.
+  Preserve engine telemetry, distinguish measured load from startup request wall
+  time, and track model/runtime initialization independently from prefix reuse.
+  A first scenario index cannot establish cold residency or an absent cache hit.
+- [x] **16.2 Opt-in controlled paired probe.** Files:
+  `benchrig/cli/__init__.py`, `benchrig/cli/run.py`,
+  `benchrig/core/runner.py`, `tests/test_cache_probe.py` (new), `tests/test_cli_dispatch.py` (approved flag snapshot).
+  Tests: `test_probe_reuses_identical_prompt_and_effective_settings`,
+  `test_probe_validates_before_model_requests`,
+  `test_probe_does_not_affect_legacy_scores`,
+  `test_unavailable_cache_settings_prevent_controlled_comparison`.
+  Add `--cache-probe`, limited to explicit speed suite and one selected model/runtime.
+  Each repetition emits a paired first/second request after runtime warm-up; no
+  unload or cache reset between the pair. Record pair ID, request position,
+  exact prompt identity, settings and cache evidence in JSON. No implicit live run.
+- [x] **16.3 Evidence report and methodology.** Files:
+  `benchrig/reporting/markdown.py`, `benchrig/reporting/common.py`,
+  `benchrig/reporting/display.py`, `benchrig/cli/report.py`, `docs/cli.md`,
+  `docs/tutorials/cross-engine-benchmarking.md`, `CHANGELOG.md`,
+  `tests/test_cache_probe.py`, `tests/test_report_markdown.py`.
+  Tests: `test_cache_probe_report_separates_load_prefill_decode_and_ttft`,
+  `test_cache_probe_report_exposes_unknown_settings_and_failed_pairs`.
+  Show paired timings and provenance without changing legacy composite weights,
+  CSV headers or normal benchmark defaults. Full gate, package build and fresh
+  independent review required before completion.
+- [ ] **16.4 Live evidence (deferred).** Files: dated `docs/analysis/` note,
+  `mkdocs.yml`; verification: raw paired JSON and runtime/version/settings evidence.
+  Requires selected model/runtime and separate operator authorization.
+
+Risks and approval decisions:
+
+- `cache_mode` remains for compatibility, but warm runtime does not establish no
+  prefix reuse. Proposed classification removes cold/warm guesses from scenario
+  order and rejects zero prompt count alone as proof; operator approved this
+  interpretation of I14 on 2026-10-04.
+- Cache type/context must be observed or have a documented runtime guarantee;
+  a requested setting alone is insufficient. Unknown means unverified, not a hit.
+- The first paired request may already hit an existing prefix cache; it is a
+  baseline request, never automatically a cache miss or cold start.
+- Initial scope observes server cache configuration; it does not change server
+  settings, restart daemons, clear caches or manage other processes.
+- Backend fixtures cover Ollama, Foundry, direct ONNX and Prism, including missing
+  telemetry. Live compatibility cannot be proved by hermetic tests.
+- Existing timing/logging overhead issue remains a separate backlog fix; paired
+  comparisons use identical logging settings and disclose the limitation.
+
+Next step: operator may choose a separately scoped live experiment (16.4) or shipping.
+No commit, push or live benchmark authorized.
+
+Phase 16 review: five P2 findings accepted for red-first fixes (runtime initialization
+evidence, raw native telemetry, missing first-token measurement, startup diagnostics
+and isolation of probe output filenames). Re-reviewed with no remaining findings.
+
+Phase 16 review follow-up: unavailable TTFT is excluded from summary/spread
+averages and rendered n/a across legacy summary/context/comparison reports;
+regressions red-proven. No fabricated zero timing introduced.
+
+Final Phase 16 evidence: `/root/review_cache_core` independently passed 47 focused
+tests; `/root/review_cache_cli` passed 38 focused tests on the final null-report
+changes. Original CLI review passed 46 focused tests. Test fixture corrections
+(complete fake-client fields, positive prefill, display function arguments) are
+recorded separately from red evidence; final red reasons are missing behavior.
+Build without isolation was unavailable because local setuptools is absent; the
+standard isolated build succeeded using previously approved build escalation.
+Existing staged operator changes preserved; no index or Git configuration changes.

@@ -417,7 +417,7 @@ Scope added at the operator's request on 2026-10-03; implementation begins once 
   - Warm-up runs are recorded with `phase="warmup"` and strictly excluded from benchmark summary averages (`avg_eval_tok_sec`, `avg_ttft_sec`, `composite_score`).
 - **Cache Reuse Verification:**
   - `cache_mode`: Stamped as `"cold"`, `"warm"`, `"prefix_cached"`, or `"unverified"`.
-  - A run is only labelled `"prefix_cached"` when verified via backend telemetry (e.g. Ollama `prompt_eval_count == 0` or Prism prefix cache hit header/telemetry). Unsupported or unconfirmed reuse is recorded as `"unverified"`.
+  - A run is only labelled `"prefix_cached"` when verified via backend telemetry (an explicit boolean prefix cache hit/miss field in server telemetry; zero prompt count alone is insufficient). Unsupported or unconfirmed reuse is recorded as `"unverified"`.
 - **Reporting:**
   - Updates `benchrig/cli.py`, `benchrig/core/runner.py`, `tests/test_measurement_methodology.py`, `docs/tutorials/cross-engine-benchmarking.md`.
 
@@ -707,3 +707,55 @@ the remaining test/lint/build/chart dependencies and runs the same CI checks.
 Full SDLC kit tooling requires a newer interpreter as documented; no gate or
 matrix entry is removed. Regression evaluates the actual declared requirement
 against Python 3.10 and 3.11 marker environments.
+
+
+## Phase 16: Controlled runtime/prefix comparison
+
+Implementation and cache classification semantics authorized 2026-10-04. Normative documentation:
+`docs/tutorials/cross-engine-benchmarking.md` and `docs/cli.md`.
+Implemented and independently reviewed; no remaining actionable findings.
+
+Model/runtime initialization and prefix reuse are independent evidence axes.
+New records expose `runtime_state` (`cold`, `warm`, `unverified`),
+`prefix_cache_state` (`hit`, `miss`, `unverified`) and raw evidence/provenance.
+Cold requires explicit backend initialization evidence (`runtime_initialized: true`)
+for that request; positive load/setup duration alone does not establish initialization.
+Warm requires a successful
+runtime warm-up with no subsequently observed reload. Missing evidence is unverified.
+A successful warm-up does not establish prefix cache absence. Neither request order,
+zero prompt token count alone nor faster TTFT proves a cache hit. Legacy `cache_mode`
+is derived conservatively: verified hit takes precedence, otherwise unverified
+prefix state yields unverified; cold/warm requires verified prefix miss and runtime
+state. Existing historical records are not reclassified.
+
+Engine load, prefill and decode durations remain distinct from client TTFT and
+startup request wall time. Absent timing is null with unavailable provenance, not
+zero. Keep runtime-provided raw telemetry; direct ONNX request load timing is
+unavailable when model loading occurs outside the measured request.
+
+`--cache-probe` is opt-in, requires explicit `--suite speed`, one model and one
+runtime; pair/baseline/compare/check/pull modes are incompatible. Invalid mode,
+nonpositive runs or missing explicit positive `num_ctx` in the selected speed
+scenario options fails with exit 2 before
+model requests. Probe data is a separate record category, excluded from legacy
+scorecards and score denominators. Existing normal CLI defaults remain unchanged.
+
+After runtime warm-up, each pair submits the identical prompt twice, sequentially,
+with identical effective context, generation options and session scope. Record
+pair identity and position, prompt identity, runtime/model versions where available,
+requested and observed context/cache type, durations and evidence. Do not reset
+cache between requests or call the first request a miss. A pair is comparable only
+when both requests succeed and context/cache type are verified unchanged; otherwise
+report unverified with reasons, retaining both records. Runtime settings are observed,
+not modified. Transport failures retain diagnostic records and do not imply unsupported
+cache capability. Backends without cache evidence remain runnable but unverified.
+
+Markdown renders paired evidence without combining these timings into legacy speed
+or composite scores. No CSV header extension in this phase. Tests cover all runtime
+adapters; live probes and published conclusions remain separately authorized work.
+
+Phase 16 failure/artifact clarification: startup failures retain a diagnostic record
+and produce the probe report. Probe artifacts use `runs/cache_probe_<timestamp>.json`,
+`cache_probe_latest.json` and `CACHE_PROBE_SUMMARY.md`, preserving existing legacy
+latest/summary artifacts. Native final server metrics are retained even without a
+verified hit. TTFT without an observed first token is null/unavailable.

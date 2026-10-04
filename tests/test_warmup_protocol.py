@@ -158,17 +158,55 @@ class WarmupProtocolTests(unittest.TestCase):
         self.assertIn("✅ PASS", report)
         self.assertEqual(report.count("Nested Dict"), 1)
 
-    def test_cache_mode_stamped_cold_on_first_execution_then_warm(self):
-        """Runner must stamp cache_mode='cold' on first scenario execution, and 'warm' on subsequent runs."""
+    def test_cache_mode_is_unverified_without_backend_evidence(self):
+        """Scenario order alone cannot establish runtime or prefix cache state."""
         client = FakeWarmupClient()
         runner = BenchmarkRunner(client=client, config={}, warmup_runs=1)
         scenarios = [{"id": "s1", "name": "Scenario 1", "prompt": "test prompt"}]
         results = runner.run_speed_suite("m", scenarios)
         self.assertEqual(results[0]["phase"], "warmup")
-        self.assertEqual(results[0]["cache_mode"], "cold")
+        self.assertEqual(results[0]["cache_mode"], "unverified")
         self.assertEqual(results[1]["phase"], "measured")
-        self.assertEqual(results[1]["cache_mode"], "warm")
+        self.assertEqual(results[1]["cache_mode"], "unverified")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_first_scenario_after_model_warmup_is_not_cold():
+    runner = BenchmarkRunner(FakeWarmupClient(), {})
+    runner.warmup("m")
+    record = runner._base_record("speed", "s", "S", "m", {"success": True}, {})
+    assert record["runtime_state"] == "warm"
+    assert record["prefix_cache_state"] == "unverified"
+    assert record["cache_mode"] == "unverified"
+
+
+def test_zero_prefill_count_without_cache_evidence_is_not_verified():
+    runner = BenchmarkRunner(None, {})
+    record = runner._base_record("speed", "s", "S", "m", {"repeat_workload": True, "prompt_eval_count": 0}, {})
+    assert record["cache_mode"] == "unverified"
+
+
+def test_runtime_reload_and_cache_evidence_are_independent():
+    runner = BenchmarkRunner(FakeWarmupClient(), {})
+    runner.warmup("m")
+    response = {"success": True, "load_time_sec": 0.25, "runtime_initialized": True, "prefix_cache_hit": False}
+    record = runner._base_record("speed", "s", "S", "m", response, {})
+    assert record["runtime_state"] == "cold"
+    assert record["prefix_cache_state"] == "miss"
+    assert record["cache_mode"] == "cold"
+
+
+def test_missing_load_timing_is_unavailable():
+    record = BenchmarkRunner(None, {})._base_record("speed", "s", "S", "m", {}, {})
+    assert record["load_time_sec"] is None
+    assert record["load_provenance"] == "unavailable"
+
+
+def test_positive_load_duration_does_not_prove_runtime_initialization():
+    runner = BenchmarkRunner(FakeWarmupClient(), {})
+    runner.warmup("m")
+    record = runner._base_record("speed", "s", "S", "m", {"success": True, "load_time_sec": 0.001}, {})
+    assert record["runtime_state"] == "warm"

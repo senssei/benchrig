@@ -164,3 +164,29 @@ use `--warmup-runs` and are excluded from measured results and progress counts.
 `--csv` appends tool-use columns; `--chart` adds a tool-task-success panel rather
 than presenting those scores as composite. `--compare` displays cached tool
 summaries; 1:1 legacy comparison requires legacy composite evidence.
+
+
+### Paired cache probe
+
+`--cache-probe` runs a separate paired-request experiment with `--suite speed`
+and one explicit `--models` value on one runtime. It writes evidence rather than
+legacy scorecards. Each custom speed scenario must specify positive `num_ctx`.
+
+
+Example custom `speed.json` (place in a separate scenario directory):
+
+```json
+[{"id":"prefix_probe","name":"Prefix probe","prompt":"Explain virtual memory page tables.",
+  "options":{"num_ctx":4096,"num_predict":128,"temperature":0,"seed":42}}]
+```
+
+```bash
+benchrig --cache-probe --suite speed --runtime ollama --models llama3.1:8b \
+  --scenarios-dir ./probe-scenarios --runs 3 --output-dir results/cache-probe
+```
+
+Pair/baseline/compare/check/pull modes, nonpositive repetitions, multiple models,
+and missing positive scenario context fail with exit 2 before model requests.
+The report and run JSON preserve failures and unavailable telemetry. A verified
+comparison requires observed cache type and context, which some adapters/backends
+cannot expose. Normal benchmark defaults and CSV columns remain unchanged.

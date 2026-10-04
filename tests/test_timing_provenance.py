@@ -129,3 +129,118 @@ class TimingProvenanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_missing_load_and_cache_evidence_in_clients():
+    from benchrig.core.client import FoundryClient, OllamaClient
+
+    for client in (FoundryClient(base_url="http://fake/v1"), OllamaClient(base_url="http://fake")):
+        response = MagicMock(status_code=200)
+        response.iter_lines.return_value = (
+            [b'{"response":"ok","done":true}']
+            if client.name == "ollama"
+            else [b'data: {"choices":[{"delta":{"content":"ok"}}]}', b"data: [DONE]"]
+        )
+        with patch("benchrig.core.client.requests.post", return_value=response):
+            result = client.generate("m", "p")
+        assert result["load_time_sec"] is None
+        assert result["load_provenance"] == "unavailable"
+        assert result.get("prefix_cache_hit") is None
+
+
+def test_backend_cache_evidence_retains_raw_telemetry():
+    client = FoundryClient(base_url="http://fake/v1")
+    response = MagicMock(status_code=200)
+    response.iter_lines.return_value = [
+        b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+        b'data: {"choices":[],"telemetry":{"prefix_cache_hit":true,"cache_type":"q8","context_tokens":4096,"load_time_sec":0.0}}',
+        b"data: [DONE]",
+    ]
+    with patch("benchrig.core.client.requests.post", return_value=response):
+        result = client.generate("m", "p")
+    assert result["prefix_cache_hit"] is True
+    assert result["observed_cache_type"] == "q8"
+    assert result["observed_context_tokens"] == 4096
+    assert result["raw_metrics"]["telemetry"]["prefix_cache_hit"] is True
+
+
+def test_native_partial_cache_telemetry_is_retained():
+    client = OllamaClient(base_url="http://fake")
+    response = MagicMock(status_code=200)
+    response.iter_lines.return_value = [
+        b'{"response":"ok","done":true,"context_tokens":4096,"cache_type":"q8","prompt_eval_cached_count":10}'
+    ]
+    with patch("benchrig.core.client.requests.post", return_value=response):
+        result = client.generate("m", "p")
+    assert result["raw_metrics"]["server_metrics"]["prompt_eval_cached_count"] == 10
+    assert result["cache_evidence"]["prompt_eval_cached_count"] == 10
+    assert result["prefix_cache_hit"] is None
+
+
+def test_native_prefill_without_token_is_not_client_ttft():
+    client = OllamaClient(base_url="http://fake")
+    response = MagicMock(status_code=200)
+    response.iter_lines.return_value = [b'{"done":true,"prompt_eval_duration":123000000}']
+    with patch("benchrig.core.client.requests.post", return_value=response):
+        result = client.generate("m", "p")
+    assert result["ttft_sec"] is None
+    assert result["ttft_provenance"] == "unavailable"
+    assert result["prefill_duration_sec"] == 0.123
+
+
+def test_openai_response_without_first_token_has_no_ttft():
+    client = FoundryClient(base_url="http://fake/v1")
+    response = MagicMock(status_code=200)
+    response.iter_lines.return_value = [
+        b'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":0}}',
+        b"data: [DONE]",
+    ]
+    with patch("benchrig.core.client.requests.post", return_value=response):
+        result = client.generate("m", "p")
+    assert result["ttft_sec"] is None
+    assert result["ttft_provenance"] == "unavailable"
+
+
+def test_null_ttft_does_not_enter_scorecard_mean_or_spread():
+    runner = BenchmarkRunner(None, {})
+    records = [
+        {"model": "m", "suite": "speed", "success": True, "eval_tok_per_sec": 1.0, "ttft_sec": ttft, "run": run}
+        for run, ttft in enumerate([None, 0.2])
+    ]
+    card = runner.compute_model_scorecard("m", records)
+    assert card["avg_ttft_sec"] == 0.2
+    assert card["spread"]["avg_ttft_sec"] == [0.2, 0.2]
+    assert runner.compute_model_scorecard("m", records[:1])["avg_ttft_sec"] is None
+
+
+def test_null_ttft_is_rendered_unavailable_in_reports(tmp_path):
+    from benchrig.reporting.display import display_1to1_comparison, display_leaderboard
+    from benchrig.reporting.markdown import generate_1to1_comparison_report, generate_markdown_report
+
+    runner = BenchmarkRunner(None, {})
+    cards = [
+        runner.compute_model_scorecard(
+            "m", [{"model": "m", "runtime": rt, "suite": "speed", "eval_tok_per_sec": 1.0, "ttft_sec": None}]
+        )
+        for rt in ("ollama", "foundry")
+    ]
+    # Supply complete summary fields to isolate rendering from aggregation.
+    for card in cards:
+        card["avg_ttft_sec"] = None
+        card["avg_prefill_eff_tok_sec"] = 1.0
+    report = generate_markdown_report(
+        cards, [{"suite": "context", "model": "m", "ttft_sec": None}], {}, str(tmp_path / "summary.md")
+    )
+    assert "n/a" in report
+    assert "n/a" in generate_1to1_comparison_report(cards[0], cards[1], [], [], {}, str(tmp_path / "comparison.md"))
+    display_leaderboard(cards)
+    display_1to1_comparison(cards[0], cards[1], [], [])
+
+
+def test_failed_request_has_unavailable_ttft(caplog):
+    caplog.set_level(50, logger="benchrig")
+    client = FoundryClient(base_url="http://fake/v1")
+    with patch("benchrig.core.client.requests.post", side_effect=OSError("transport failed")):
+        result = client.generate("m", "p")
+    assert result["success"] is False
+    assert result["ttft_sec"] is None
