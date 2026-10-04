@@ -5,6 +5,21 @@ the files it touches and the test that proves it. Behavior it adds is written in
 
 ---
 
+## Open work index (realigned 2026-10-04)
+
+Snapshot derived from the phases below, `git tag` and the gate (542 passed, 4 skipped; lint/format/changelog PASS).
+Nothing here is newly approved; this section only points at the authoritative entries.
+
+| State | Item | Where | Blocked on |
+|---|---|---|---|
+| Done, uncommitted | Phases 12, 13.1-13.4, 14, 16.1-16.3 (staged in the working tree) | phases below | operator: commit / release decision |
+| Operator-side | PyPI Trusted Publisher, GitHub Pages, `senssei/local-coders`, prism-local release | Phase 3 | operator (tags `v0.1.0`, `v0.2.0` exist locally; remote/PyPI state unverified) |
+| Live evidence | 13.5 tool-use results, 16.4 cache-probe note | Phases 13, 16 | operator picks model/runtime pairs and thresholds |
+| Proposed | Phase 15 (12 GB VRAM model selection) | Phase 15 | operator approval + `spec.md` section; 15.2 overlaps existing `gpu_fit_pct` |
+| Backlog | see "Backlog (not scheduled)" | below | each needs its own phase, spec and approval |
+
+---
+
 ## Phase 1: Charts and CSV export from `results/runs/`
 
 Status: approved (2026-09-21).
@@ -87,7 +102,8 @@ Risks and open questions:
 ## Phase 3: Operator-side releases (PyPI for benchrig, GitHub Pages, `senssei/local-coders`, prism-local 0.2.0)
 
 Status: historical release checklist from 2026-09-21; local changelog now records
-0.1.0 and 0.2.0. External PyPI/Pages/repository state has not been reverified.
+0.1.0 (2026-09-20) and 0.2.0 (2026-09-23) and local tags `v0.1.0` / `v0.2.0` exist (checked 2026-10-04).
+External PyPI/Pages/repository state has not been reverified, so the boxes stay unticked.
 Keep these entries as historical evidence, not current release instructions. These are operator actions, not code changes — they appear here so they are not lost between sessions, but they are not SDLC plan items in the code/test sense.
 
 - [ ] Trusted Publisher for `benchrig` on PyPI (`publish.yml`, environments `testpypi` and `pypi`), move `[Unreleased]` → dated entry in `CHANGELOG.md`, tag `v0.1.0`.
@@ -712,6 +728,23 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
   revisit only after discussing the design with the operator, and only once Prism's side is committed and
   tagged.
 
+
+Carried over from `scratch/TODO.md` §4 (historical snapshot of 2026-09-20/21, still open; not approved, no spec yet):
+
+- **ONNX int4 vs Ollama reasoning gap: cause unknown.** Prism ONNX scored 58.3-61.1% vs Ollama 77.8% on reasoning
+  (p about 0.07-0.09, uncertain). The prompt template is ruled out; RTN quantization vs runtime numerics is not separated.
+  Needs an fp16 ONNX variant or an Ollama model with the same quantization, neither available. Related: Phase 15 risks.
+- **`generic-cpu` on CUDA is very slow** (2-22 tok/s for qwen; Phi-3.5-mini did not finish 4500 tokens in 5 min).
+  Benchrig now warns (Phase 2); whether Prism should warn or prefer CPU for such variants is a Prism-side question.
+- **ORT GenAI logits buffer hypothesis** ("buffer scales with vocabulary x prompt length") is unverified in the
+  library; could be reported upstream to onnxruntime-genai with measurements.
+- **Unsolved reasoning scenarios.** Letter Counting and Distinct-Digit Multiples of Five are passed by no tested
+  model (`docs/benchmark-suites.md`); decide whether they stay as deliberately hard or get calibrated.
+- **Foreign GPU processes in the VRAM baseline** (e.g. IDE `prism.cli mcp` processes holding about 3 GB) drift between
+  measurements; Phase 2.2 records `vram_baseline_dirty_mb`, but the drift itself is not mitigated.
+- **Log write inside measured TTFT** (above) also applies to the Phase 16 cache probe; paired comparisons must use
+  identical `--log-level` and disclose it (already stated in Phase 16 risks).
+
 ---
 
 ## Phase 12: Repo-quality hardening from independent review
@@ -938,9 +971,10 @@ Status: completed (2026-10-03); all items 14.1–14.5 shipped; review complete (
 - [x] **14.4 Warm-up and KV reuse protocol:** separate cold runs, warm model/runtime runs and verified prefix-cache reuse with repeated identical workloads. Files: `benchrig/cli.py`, `benchrig/core/runner.py`, `benchrig/core/client.py`, `docs/tutorials/cross-engine-benchmarking.md`. Verification: `tests/test_warmup_protocol.py` proving warm-ups are excluded from measured aggregates and unverified prefix reuse is labelled correctly. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **14.5 Executable-test evidence:** show pass counts/denominators and distinguish task success from assertion success, alongside per-task evidence and supplementary aggregate scores. Files: `benchrig/core/runner.py`, `benchrig/reporting/markdown.py`, `benchrig/reporting/csv_export.py`, `docs/benchmark-suites.md`, `CHANGELOG.md`. Verification: `tests/test_coding_metrics.py` covering disaggregated task vs assertion pass counts and reporting. Dependency: P0 verdict integrity is closed. Shipped 2026-10-03, sdlc_check.py exit 0.
 
-## Phase 15: Model selection for 12 GB VRAM (RTX 5070) — measured, not assumed (proposed)
+## Phase 15: Model selection for 12 GB VRAM (RTX 5070) — measured, not assumed
 
-Status: proposed (2026-10-04); **pending operator approval** before any item moves to `approved` and `spec.md` is updated.
+Status: approved by operator 2026-10-04 ("15, tak, tak"); spec in `spec.md` "Phase 15". Live runs authorized for
+**installed Ollama models only**; pulling new models needs a separate request. LM Studio is proxied via Ollama (spec).
 Origin: external feedback recommending Qwen3 32B Q4_K_M / GLM 32B Q4 / DeepSeek-R1 Distill 32B Q4 over a 78B IQ2 model
 (Kolibri-1) on an RTX 5070 12 GB for LM Studio (architecture, IoT, code, PowerShell, analysis). The feedback contained no
 measurements; this phase turns its claims into hypotheses that benchrig can confirm or reject on the operator's host.
@@ -956,35 +990,18 @@ Hypotheses to test (none verified yet):
   traces; `answer_ttft_sec` / `thinking_chars` (Phase 6) should show it.
 - Unverified names: "glm-5.3 32B" and "Kolibri-1 78B" must be confirmed to exist (and in which quant) before they enter a run.
 
-- [ ] <!-- Item 15.1: Candidate matrix and run protocol (docs only).
-         Files: docs/tutorials/model-selection-12gb.md (new), mkdocs.yml (register page).
-         Content: the candidate list (Qwen3 14B Q4/Q5, Qwen3-30B-A3B Q4, Qwen3-Coder-30B-A3B Q4, Qwen3 32B Q4_K_M,
-         DeepSeek-R1 Distill 32B Q4, GLM 32B Q4 once its name is verified, Kolibri-1 78B IQ2 as benchmark-only), the fixed
-         context (reuse 14.3's fixed-context workload), `--runs 3`, warm-up protocol from 14.4, suites
-         `coding,reasoning,polish,speed`, and the recorded host facts (RAM size/type/speed, driver, context length,
-         KV-cache quantization).
-         Test: tests/test_docs.py presence check for the page and the mkdocs nav entry.
-         Status: proposed. -->
-
-- [ ] <!-- Item 15.2: Record how much of a model ran on the GPU (partial offload fraction).
-         Files: benchrig/core/client.py / benchrig/core/runtimes.py (read offloaded-layer info where the runtime exposes
-                it, e.g. Ollama `/api/ps` size vs size_vram), benchrig/reporting/markdown.py, benchrig/reporting/csv_export.py.
-         Existing runner.measure_gpu_fit already reads Ollama size_vram / size into gpu_fit_pct,
-         records and scorecards; the efficiency table already renders it. Reuse that path and
-         audit missing exports/provenance rather than implementing the measurement again.
-         This is a byte residency ratio, not a measured layer or compute offload fraction. Report as
-         "unavailable" (not 0%) when the runtime does not expose it.
-         Test: fake-server tests for the exposed and not-exposed cases; markdown/CSV rendering tests (hermetic).
-         Open question: LM Studio is the feedback's target runtime; benchrig has no LM Studio client. Decide whether to
-         benchmark the same GGUFs via Ollama (llama.cpp) as a proxy, or add an OpenAI-compatible runtime for LM Studio.
-         Status: proposed; needs a spec and an operator decision on the runtime question. -->
-
-- [ ] <!-- Item 15.3: Real run and results note (documentation, not code).
-         Files: results/ (run JSON, as for other runs), docs/ (short results note).
-         Run the matrix from 15.1 on the RTX 5070 12 GB host, record tok/s, TTFT, answer latency, peak VRAM/RSS and suite
-         scores per model; state for each of H1-H4 whether it held, with the numbers. Feeds the operator's default-model
-         choice for LM Studio; the 78B IQ2 stays a benchmark data point only.
-         Status: proposed; needs real hardware and enough free VRAM (opt-in, like the other live runs). -->
+- [x] **15.1 Candidate matrix and run protocol (docs only).** Files: `docs/tutorials/model-selection-12gb.md` (new),
+  `mkdocs.yml`, `tests/test_docs.py`. Test: `test_model_selection_page_is_registered_and_states_hypotheses` (page exists,
+  is in nav, lists H1-H4 and the host facts to record). Installed candidates: `qwen3:14b`, `qwen2.5-coder:14b`,
+  `deepseek-r1:14b`, `gemma3:12b`; not installed (need a separate pull request): Qwen3-30B-A3B, Qwen3-Coder-30B-A3B,
+  Qwen3 32B, DeepSeek-R1 Distill 32B, GLM 32B (name unverified), Kolibri-1 78B IQ2 (existence unverified).
+- [x] **15.2 Export GPU residency (`gpu_fit_pct`) in CSV.** Files: `benchrig/reporting/csv_export.py`,
+  `tests/test_csv_export.py` (or the existing CSV test module), `docs/cli.md`/`docs/hardware-telemetry.md`, `CHANGELOG.md`.
+  Audit result: measurement (`runner.measure_gpu_fit`), scorecard and Markdown/terminal tables already exist; only the CSV
+  column is missing. Tests: appended column present, `None` renders empty not `0`.
+- [ ] **15.3 Real run and results note.** Files: `results/` run JSON, `docs/analysis/` note, `mkdocs.yml`. Run the installed
+  matrix on the RTX 5070, record tok/s, TTFT, answer latency, peak VRAM, `gpu_fit_pct`, suite scores; state per hypothesis
+  whether it held or "not tested" (H1, H3-MoE need models that are not installed). Raw run JSON kept.
 
 Risks and open questions:
 

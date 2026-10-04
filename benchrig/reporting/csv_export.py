@@ -51,6 +51,7 @@ SCORECARD_CSV_COLUMNS: tuple[str, ...] = (
     "tool_unsupported_count",
     "tool_error_count",
     "tool_request_latency_sec",
+    "gpu_fit_pct",
 )
 
 

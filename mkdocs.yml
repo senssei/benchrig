@@ -57,6 +57,7 @@ nav:
   - Guides:
       - Cross-engine benchmarking: tutorials/cross-engine-benchmarking.md
       - Custom scenarios: tutorials/custom-scenarios.md
+      - Model selection for 12 GB VRAM: tutorials/model-selection-12gb.md
       - Foundry GPU setup (WSL2 / Linux): tutorials/foundry-gpu-setup.md
       - Foundry, CUDA & TensorRT on WSL2: foundry-wsl-cuda-tensorrt.md
   - Historical analyses:

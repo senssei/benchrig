@@ -43,6 +43,19 @@ class CsvExportTests(unittest.TestCase):
         for row in rows[1:]:
             self.assertEqual(len(row), len(SCORECARD_CSV_COLUMNS))
 
+    def test_gpu_fit_is_the_last_column_and_unavailable_is_empty_not_zero(self):
+        from benchrig.reporting.csv_export import SCORECARD_CSV_COLUMNS, write_scorecards_csv
+
+        self.assertEqual(SCORECARD_CSV_COLUMNS[-1], "gpu_fit_pct")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "scorecards.csv")
+            write_scorecards_csv(
+                [card("big:32b", gpu_fit_pct=61.5), card("other", gpu_fit_pct=None), card("plain")], path
+            )
+            with open(path, newline="") as fh:
+                rows = list(csv.DictReader(fh))
+        self.assertEqual([r["gpu_fit_pct"] for r in rows], ["61.5", "", ""])
+
     def test_csv_export_returns_path(self):
         from benchrig.reporting.csv_export import write_scorecards_csv
 

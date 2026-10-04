@@ -12,6 +12,7 @@ versions may include breaking changes).
 - **Sandbox verdict integrity and trust boundary (P0).** Candidate stdout and stderr no longer determine coding benchmark verdicts or test counts. The sandbox now communicates test execution status out-of-band via a temporary result file verified with a secret token, enforces caller-provided total test counts, and treats premature exits (such as `SystemExit(0)`) or forged stdout markers as test failures.
 
 ### Changed
+- CSV export appends a `gpu_fit_pct` column (byte share of the model resident in GPU memory; empty when the runtime does not report it). Added a model-selection protocol page for 12 GB GPUs.
 - Moved manual September benchmark investigations into a dated documentation archive, with historical scope and source-artifact availability clearly identified.
 - Split the CLI into command modules while preserving flags, help text, entry points, and existing package imports.
 - **Repo-quality hardening and documentation batch (Phase 12, items 12.1, 12.2, 12.9, 12.10).**

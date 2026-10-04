@@ -59,5 +59,14 @@ class DocsCoverageTests(unittest.TestCase):
         self.assertEqual(listed, pages)
 
 
+class ModelSelectionPageTests(unittest.TestCase):
+    def test_model_selection_page_is_registered_and_states_hypotheses(self):
+        text = read("tutorials/model-selection-12gb.md")
+        nav = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+        self.assertIn("tutorials/model-selection-12gb.md", nav)
+        for marker in ("H1", "H2", "H3", "H4", "--runs 3", "KV-cache", "gpu_fit_pct"):
+            self.assertIn(marker, text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -759,3 +759,24 @@ and produce the probe report. Probe artifacts use `runs/cache_probe_<timestamp>.
 `cache_probe_latest.json` and `CACHE_PROBE_SUMMARY.md`, preserving existing legacy
 latest/summary artifacts. Native final server metrics are retained even without a
 verified hit. TTFT without an observed first token is null/unavailable.
+
+
+## Phase 15: Model selection for 12 GB VRAM — measured protocol
+
+Approved by operator 2026-10-04 ("15, tak, tak"), including live Ollama runs on installed models.
+Pulling models that are not installed is not covered and needs a separate request.
+
+- **Protocol page.** `docs/tutorials/model-selection-12gb.md` (in the MkDocs nav) states hypotheses H1-H4 from
+  `plan.md` as unverified, the candidate matrix, the fixed workload (`--runs 3`, default warm-up, suites
+  `coding,reasoning,polish,speed`, explicit `num_ctx`), and the host facts to record (GPU, driver, RAM, context,
+  KV-cache type). Candidates not installed or whose names are unverified are marked as such and are never run implicitly.
+- **GPU residency.** `gpu_fit_pct` is a byte-residency ratio (`size_vram / size` from the runtime's running-model
+  list), not a layer or compute offload fraction. Unavailable is `None`, rendered `-` in reports and as an empty CSV cell,
+  never `0`. Ollama only; other runtimes stay unavailable.
+- **CSV (additive I1 change, approved with this phase).** `SCORECARD_CSV_COLUMNS` appends `gpu_fit_pct` after the
+  existing columns; existing columns are not reordered or renamed.
+- **LM Studio.** The feedback targets LM Studio, which benchrig has no client for. Decision: benchmark the same GGUF
+  families through Ollama (llama.cpp) as a proxy; results do not transfer one-to-one to LM Studio (different defaults for
+  context, KV-cache type and offload). A dedicated OpenAI-compatible runtime is out of scope.
+- **Results note.** Findings are written only from recorded run JSON, stating per hypothesis whether it held, with numbers,
+  host and settings. Hypotheses that cannot be tested with installed models stay "not tested".
