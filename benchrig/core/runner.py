@@ -438,6 +438,8 @@ class BenchmarkRunner:
             expected_answer=sc.get("expected_answer", ""),
             check_type=sc.get("check_type", "exact_or_contains"),
             accepted_patterns=sc.get("accepted_patterns", []),
+            evaluator=sc.get("evaluator"),
+            scenario_id=sc.get("id"),
         )
 
     def warmup(self, model: str):

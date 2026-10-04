@@ -715,37 +715,30 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 
 ## Phase 12: Repo-quality hardening from independent review
 
-Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision.
+Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision. Item 12.3 approved by operator 2026-10-03 (spec drafted in `spec.md` §12.3); implementation shipped and independently reviewed twice (fresh-context `general-purpose` subagent). First review: 8 findings (1×P1, 2×P2, 5×nit) — all addressed. Second review: 5 prior fixes verified, 2 new nits raised — non-string `evaluator` value now rejected by `isinstance` check (added test), and dead `(or Decimal)` clause dropped from `spec.md`. sdlc_check.py exit 0; ready for operator release decision. Item 12.4 approved by operator 2026-10-03; completed 2026-10-04. Restored compatibility exports, package/source-module dispatch and helper lookups, and dispatch-test patch cleanup. Review: fresh-context Codex subagent `/root/review_cli`, three passes; three P2 findings reproduced red, fixed, and independently re-reviewed with no remaining findings (23 dispatch tests independently passed). Full gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS. Final `.venv/bin/python -m build` exit 0: wheel and sdist built; isolated dependencies required approved network escalation after sandbox DNS failure. Ready for operator release decision; no commit or push. Items 12.5, 12.7 remain proposed without spec.
 
 - [x] **12.1 Sandbox docstring matches actual isolation level:** update docstrings in `benchrig/core/sandbox.py`, CLI `--help`, and docs to describe process-group isolation and disclose residual risks. Files: `benchrig/core/sandbox.py`, `benchrig/cli.py`, `docs/benchmark-suites.md`, `docs/development.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **12.2 Document coding suite is Python-only:** add clear Python-only scope statements and create `benchrig/data/scenarios/coding.README.md`. Files: `docs/benchmark-suites.md`, `README.md`, `benchrig/data/scenarios/coding.README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
-- [ ] <!-- Item 12.3: Numeric-equivalence layer for reasoning ground truth.
-         Files: benchrig/core/reasoning_parser.py (extend `evaluate_reasoning_answer` with a numeric
-                equivalence path), benchrig/data/scenarios/reasoning.json (mark which scenarios opt in via
-                an `evaluator: "numeric"` field), tests/test_reasoning_evaluator.py (new) or extend existing
-                reasoning tests.
-         Test: tests/test_reasoning_evaluator.py::NumericEquivalenceTests — model answer "42" matches
-               expected "42", "42.0", and "  42  " (whitespace-trimmed); "forty-two" matches only when the
-               scenario explicitly opts in to text-numeric normalization; "Forty-Two" (capitalization)
-               does not; non-numeric ground truth (e.g. word puzzles) keeps the current string/regex path
-               unchanged. Spec to be written before implementation per `plan.md` header.
-         Status: proposed. -->
+- [x] **12.3 Numeric-equivalence layer for reasoning ground truth.**
+         Files: `benchrig/core/reasoning_parser.py` (extend `evaluate_reasoning_answer` with an `evaluator`
+         kwarg accepting `"numeric"` and `"numeric_text"` per `spec.md` §12.3), `benchrig/core/runner.py`
+         (`_evaluate_answer` passes `evaluator=sc.get("evaluator")` through), `benchrig/data/scenarios/reasoning.json`
+         (add `"evaluator"` field to numeric scenarios), `tests/test_reasoning_evaluator.py` (new — see test
+         description below), `docs/benchmark-suites.md` (add "Reasoning ground-truth comparison" subsection),
+         `CHANGELOG.md` (one-line `[Unreleased]` entry).
+         Test: `tests/test_reasoning_evaluator.py::NumericEquivalenceTests` — model answer `"42"` matches
+         expected `"42"`, `"42.0"`, and `"  42  "` (whitespace-trimmed) when scenario has `evaluator: "numeric"`;
+         `"forty-two"` matches `"42"` only when scenario has `evaluator: "numeric_text"`; `"Forty-Two"` (capitalization)
+         does NOT match `"forty-two"`; non-numeric ground truth (e.g. word puzzles, regex-based answers) keeps
+         the current string/regex path unchanged; an unknown `evaluator` value is treated as `None` and emits
+         a structured-log event `evaluator.unknown`.
+         Spec: `spec.md` §12.3 written. Status: implemented 2026-10-03; sdlc_check.py exit 0; ready for independent review.
 
-- [ ] <!-- Item 12.4: Split `benchrig/cli.py` into per-command modules.
-         Files: benchrig/cli.py (becomes a thin dispatcher: argument parsing + subcommand routing),
-                benchrig/cli/__init__.py (new, re-exports `main` for `pyproject.toml`'s
-                `benchrig = "benchrig.cli:main"` entry point), benchrig/cli/check.py (new — `--check` and
-                `--runtime` diagnostics), benchrig/cli/run.py (new — main benchmark orchestration),
-                benchrig/cli/report.py (new — `--csv`/`--chart`/markdown writers).
-         Test: existing CLI tests must keep passing unchanged (test_benchmark_cli.py,
-               test_cli_logging.py, test_cli_report_flags.py, test_cli_capacity_skip_notice.py);
-               add tests/test_cli_dispatch.py asserting that `benchrig.cli:main` routes `--check`,
-               a benchmark run, and `--csv`/`--chart` to the right subcommand module and that
-               `benchrig --help` renders identically to today.
-         Risk: `pyproject.toml` `benchrig = "benchrig.cli:main"` must keep resolving; this is a
-               package restructure, not a rename.
-         Status: proposed. -->
+- [x] **12.4 Split `benchrig/cli.py` into per-command modules.**
+         Files: `benchrig/cli.py` (removed), `benchrig/cli/__init__.py` (new thin dispatcher: `build_parser`, `main`, and backward-compat re-exports of every symbol tests import/patch via `benchrig.cli.*`), `benchrig/cli/_common.py` (constants + cross-command helpers), `benchrig/cli/check.py` (`--check` and `--pull-recommended` paths), `benchrig/cli/compare.py` (`--compare` path), `benchrig/cli/run.py` (main benchmark run), `benchrig/cli/report.py` (`--csv`/`--chart`/markdown writers).
+         Test: existing CLI tests must keep passing unchanged (`tests/test_benchmark_cli.py`, `test_cli_logging.py`, `test_cli_report_flags.py`, `test_cli_capacity_skip_notice.py`, `test_packaging.py`, `test_foundry_runtime.py`, `test_warmup_protocol.py`, `test_report_1to1.py`); add `tests/test_cli_dispatch.py` asserting that `benchrig.cli:main` routes `--check` (→ `run_system_check`), a benchmark run (→ `run_benchmarks`), and `--csv`/`--chart` (→ `save_outputs` in `report.py`) to the right subcommand module, that `benchrig --help` renders identically to today, and that every symbol tests import via `from benchrig.cli import X` keeps resolving after the restructure.
+         Spec: `spec.md` §12.4 written. Status: completed 2026-10-04; gate and package build green, independent review clean.
 
 - [ ] <!-- Item 12.5: Add `setup_linux.sh` / `setup_wsl.sh` mirroring `setup_mac.sh`.
          Files: setup_linux.sh (new), setup_wsl.sh (new — WSL guard, then sources setup_linux.sh).

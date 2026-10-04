@@ -466,3 +466,47 @@ Scope added at the operator's request on 2026-10-03; implementation begins once 
   1. Single ```python fence with uniform indentation margin is dedented so that unindented top-level statements do not raise `IndentationError`.
   2. Multiple fences where subsequent blocks are continuation fragments are NOT individually dedented (relative structure preserved).
   3. Plain text with zero fences returns stripped raw text.
+
+### 12.3 Numeric-equivalence layer for reasoning ground truth
+- `benchrig/core/reasoning_parser.py::evaluate_reasoning_answer` gains an optional keyword argument `evaluator: str | None = None`. When set, the function runs a normalization layer on the model's answer before delegating to the underlying `check_type`.
+- `evaluate_reasoning_answer` also gains an optional `scenario_id: str | None = None` keyword argument, propagated by `BenchmarkRunner._evaluate_answer` from `sc.get("id")`. It is included in the `evaluator.unknown` structured-log event payload (see Failure modes).
+- For both `evaluator` values, the model's answer is preprocessed the same way: if a `Final answer:` marker is present, the text after the marker is used; otherwise the full answer text is used. Leading and trailing whitespace is then trimmed. This means scenarios whose prompt asks for `Final answer: <integer>` are matched by both evaluators (the marker and reasoning prose don't trip the numeric parse).
+- `evaluator` values (all opt-in per scenario; absent means behavior is exactly as today):
+  - `"numeric"` — after the preprocessing above, if both sides parse as a `Fraction`, compare exactly; otherwise fall back to the underlying `check_type` (so `42` and `42.0` and `  42  ` all match `42`; word answers like `forty-two` do not silently match a numeric `42`).
+  - `"numeric_text"` — same as `"numeric"` plus an English text-to-number conversion on both sides before the comparison. Supported forms: `zero`, `one`, ..., `nineteen`, `twenty`, `thirty`, ..., `ninety`, `hundred`, `thousand`, `million`, and hyphenated forms like `forty-two`, `twenty-one`. The conversion is case-sensitive: `Forty-Two` does NOT match `forty-two`.
+- If only one side parses as a number (after normalization), the numeric layer is a no-op and the underlying `check_type` decides. This is the invariant that keeps word-puzzle answers (`expected_answer` is itself a word) from being silently accepted as numeric.
+- `benchrig/core/runner.py::_evaluate_answer` passes `evaluator=sc.get("evaluator")` and `scenario_id=sc.get("id")` through to the evaluator.
+- `benchrig/data/scenarios/reasoning.json` opts scenarios in by adding an `"evaluator"` field. Numeric scenarios (`reasoning_letter_count`, `reasoning_bat_ball`, `reasoning_multiples`, `reasoning_distinct_digits`, `reasoning_recurrence`, `reasoning_price_chain`, `reasoning_strawberry`) opt in to `"numeric"`; word-puzzle scenarios (the three-boxes regex) keep the current string/regex path. `polish.json`, `coding.json`, `speed.json`, and `context_scaling.json` are out of scope for this item.
+- New tests live in `tests/test_reasoning_evaluator.py::NumericEquivalenceTests` (per `plan.md` Phase 12.3):
+  - `42` matches `42`, `42.0`, and `  42  ` (whitespace-trimmed) when the scenario uses `evaluator: "numeric"`.
+  - `forty-two` matches `42` only when the scenario uses `evaluator: "numeric_text"`.
+  - `Forty-Two` does NOT match `forty-two` without an explicit case-insensitive opt-in (out of scope for this item).
+  - Non-numeric ground truth (e.g. word puzzles, regex-based answers) keeps the current string/regex path unchanged.
+  - `evaluator="numeric"` short-circuits to `correct=True` even when the legacy `check_type="final_answer"` path with empty `accepted_patterns` would reject (proves the numeric layer is on the critical path, not a no-op for `final_answer` scenarios).
+  - `evaluator="numeric_text"` rejects `response="Final answer: Forty-Two"` against `expected_answer="42"` directly (not via the no-op fallback).
+
+Failure modes:
+- Unknown `evaluator` value: treated as `None` and emits a structured-log event `evaluator.unknown` with `scenario.id` (when provided) and `evaluator.value` (the rejected value). The numeric layer does not run; the underlying `check_type` decides. This is a typo-guard so a misspelled field does not silently disable comparison.
+- Numeric layer is a no-op when the model's answer has no digits and the scenario's `expected_answer` has no digits (status unchanged, exit code unchanged). This is pinned by a test for both `evaluator="numeric"` and `evaluator="numeric_text"`.
+- Numeric layer is a no-op when only one side parses as a number after normalization (status unchanged, exit code unchanged).
+
+Normative doc updates: `docs/benchmark-suites.md` gains a short "Reasoning ground-truth comparison" subsection listing the supported normalizations and the per-scenario `evaluator` field; `CHANGELOG.md` gains a one-line entry under `[Unreleased]`.
+
+### 12.4 Split `benchrig/cli.py` into per-command modules
+- The current `benchrig/cli.py` (1028 lines) becomes a thin dispatcher; the implementation moves into a new `benchrig/cli/` package with one module per command group:
+  - `benchrig/cli/__init__.py` — `build_parser()` (unchanged), `main()` (unchanged behavior, dispatches by arg), and **backward-compat re-exports** of every public symbol the tests currently import via `from benchrig.cli import X` or patch via `patch("benchrig.cli.X", ...)` (`run_benchmarks`, `run_system_check`, `pull_recommended_models`, `run_compare_mode`, `resolve_target_models`, `_resolve_log_level`, `_warn_slow_provider`, `_suite_skip_notice`, `_bootstrap_cuda_env`, `evaluate_model`, `build_scorecards`, `save_outputs`, `show_1to1_comparison`, `load_baseline`, `display_system_banner`, `display_leaderboard`, `display_token_savings`, `get_system_specs`, plus the module-level `console`, `glob`, `logging`, and `time` modules — verified by `grep "benchrig\\.cli" tests/`).
+  - `benchrig/cli/_common.py` — module-level constants (`SUITES`, `RUNTIME_CHOICES`, `_VALID_LOG_LEVELS`, `CONFIG_FILENAME`, `CONFIG_ENV_VAR`, `BUNDLED_DATA`, `SCENARIOS_DIR`) and the cross-command helpers (`_resolve_log_level`, `resolve_config_path`, `load_config`, `resolve_scenarios_dir`, `load_scenario_file`, `_warn_slow_provider`, `_suite_skip_notice`, `_total_scenario_steps`, `load_json_or_exit`, `_bootstrap_cuda_env`).
+  - `benchrig/cli/check.py` — `--check` and `--pull-recommended` paths (`run_system_check`, `pull_recommended_models`, `resolve_target_models`, `resolve_pair_targets`, `_installed_names`, `_recommended_models_for`, `_print_pull_progress`, `is_ollama`, `_check_ollama`, `_check_foundry`, `_check_prism`, `_check_onnx`, `_check_accelerator`).
+  - `benchrig/cli/compare.py` — `--compare` path (`run_compare_mode`, `load_baseline`, `show_1to1_comparison`, `records_for`, `select_pair`, `_model_key`).
+  - `benchrig/cli/run.py` — main benchmark orchestration (`run_benchmarks`, `evaluate_model`, `build_scorecards`).
+  - `benchrig/cli/report.py` — output writers (`save_outputs`; the Markdown / CSV / chart producers from `benchrig.reporting.*` stay where they are).
+- The single-file `benchrig/cli.py` is **replaced** by the package: `benchrig/cli.py` is removed and `benchrig/cli/__init__.py` becomes the new thin dispatcher. This is a package restructure, not a rename; `pyproject.toml`'s `benchrig = "benchrig.cli:main"` entry point keeps resolving unchanged because Python imports `benchrig.cli` (the package) instead of the old `benchrig/cli.py` file.
+- `benchrig --help` renders **byte-identically** to today (the `argparse.ArgumentParser` configuration is moved as-is, not rewritten).
+- `benchrig/__main__.py`'s `from benchrig.cli import main` keeps working because `main` is re-exported in `benchrig/cli/__init__.py`.
+- Tests pinned in `tests/test_packaging.py` (`assertEqual(module, "benchrig.cli")` for the entry-point string) keep passing without changes.
+
+Failure modes:
+- New tests can patch either `benchrig.cli.X` (the re-export, current pattern) or `benchrig.cli.run.<name>` (the source module). Both work because command dispatch and shared-helper calls resolve at call time: an overridden package export takes precedence; otherwise the callable is read from its owning module.
+- If a re-export is forgotten, a test that imports it directly via `from benchrig.cli import X` will raise `ImportError`. `tests/test_packaging.py` already pins the entry-point string; a new test in `tests/test_cli_dispatch.py` pins the re-exports by importing each symbol listed above.
+
+Normative doc updates: none (no public CLI flag changes).

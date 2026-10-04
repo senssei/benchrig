@@ -55,3 +55,18 @@ git config core.hooksPath .githooks                  # opt in to the pre-commit 
 Read `AGENTS.md`, `intent.md`, `spec.md` and the current phase in `plan.md`. Review the actual working diff, including untracked files, with independent context. Findings must name severity, file/line and a reproducible scenario. Record the exact gate command, exit status and any sandbox limitations; a blocked check is not a pass. Existing operator authorization covers the requested implementation; commits, pushes and releases need their own authorization.
 
 Project checks: Verify benchmark isolation and result provenance; runtime changes update CHANGELOG.md.
+
+
+## Item 12.4 review — 2026-10-04
+
+Independent reviewer: fresh-context Codex subagent `/root/review_cli`, read-only, given the
+artifacts and working diff including untracked CLI modules. Three P2 findings: source-command
+patch dispatch, moved-command package helper lookups, and report/progress console lookups.
+All fixed with red-first regressions using `python3 scripts/sdlc_check.py --red`; final
+independent re-review found no actionable findings and passed all 23 dispatch tests.
+
+Author verification: `python3 scripts/sdlc_check.py` exit 0 (460 passed, 4 skipped,
+4 subtests passed; lint, format, changelog PASS). `.venv/bin/python -m build` exit 0,
+wheel and sdist built. Initial build dependency installation failed under sandbox DNS
+restrictions; the final build used approved network escalation. Operator shipping decision
+remains pending; no commit or push performed. Previously reviewed reasoning changes preserved.

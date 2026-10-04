@@ -117,6 +117,24 @@ Designed to test models that generate reasoning chains (such as DeepSeek-R1 or Q
     - The expected answers of the new scenarios are computed by independent code in `tests/test_scenarios.py`, which also rejects near
       misses, so a wrong expectation cannot rank models wrongly.
 
+### Reasoning ground-truth comparison
+
+The `evaluator` field on a reasoning scenario (added in `spec.md` §12.3) is an opt-in layer that runs *before* the
+scenario's `check_type`. Without it, the scenario behaves exactly as it always has.
+
+| `evaluator` | Effect |
+| :--- | :--- |
+| (absent) | Today's behavior. Whitespace and word forms are not normalized. |
+| `"numeric"` | Trim whitespace on both sides; if both parse as a `Fraction`, compare exactly. `"42"`, `"42.0"`, and `"  42  "` all match `"42"`; word answers like `"forty-two"` do not silently match a numeric `"42"`. |
+| `"numeric_text"` | Same as `"numeric"`, plus an English text-to-number conversion on both sides: `zero`, `one`, ..., `nineteen`, `twenty`, `thirty`, ..., `ninety`, `hundred`, `thousand`, `million`, and hyphenated forms like `"forty-two"`, `"twenty-one"`. Conversion is case-sensitive: `"Forty-Two"` does NOT match `"forty-two"`. |
+
+When only one side parses as a number (after normalization), the numeric layer is a no-op and the underlying
+`check_type` decides. This is the invariant that keeps word-puzzle answers (`expected_answer` is itself a word) from
+being silently accepted as numeric.
+
+Unknown values for the field are treated as `None`, with an `evaluator.unknown` structured-log event emitted on
+stderr so a typo does not silently disable comparison.
+
 ### Scenarios
 
 | Scenario | Check | Expected |

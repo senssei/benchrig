@@ -77,7 +77,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_recurrence",
@@ -91,7 +92,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_price_chain",
@@ -105,7 +107,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_letter_count",
@@ -119,7 +122,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_bat_ball",
@@ -133,7 +137,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_multiples",
@@ -147,7 +152,8 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   },
   {
     "id": "reasoning_strawberry",
@@ -161,6 +167,7 @@
       "temperature": 0.1,
       "num_predict": 1024
     },
-    "check_type": "final_answer"
+    "check_type": "final_answer",
+    "evaluator": "numeric"
   }
 ]
