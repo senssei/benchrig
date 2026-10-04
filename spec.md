@@ -510,3 +510,27 @@ Failure modes:
 - If a re-export is forgotten, a test that imports it directly via `from benchrig.cli import X` will raise `ImportError`. `tests/test_packaging.py` already pins the entry-point string; a new test in `tests/test_cli_dispatch.py` pins the re-exports by importing each symbol listed above.
 
 Normative doc updates: none (no public CLI flag changes).
+
+
+### 12.5 Installation documentation: PyPI first
+
+Operator authorized the revised scope on 2026-10-04: defer Linux/WSL setup
+scripts and make PyPI the primary installation path in README and the quickstart.
+This is documentation only; product requirements and runtime behavior are unchanged.
+
+- Main instructions for macOS Apple Silicon and Linux/WSL2 use Python 3.10+,
+  a virtual environment, `python -m pip install benchrig`, and `benchrig --check`.
+- Optional `benchrig[charts]` and `benchrig[onnx-gpu]` installation commands use
+  the same environment. Describe direct ONNX as the optional NVIDIA CUDA path;
+  runtime setup remains documented in the existing runtime guides.
+- Repository cloning and `python -m pip install -e ".[dev]"` appear separately
+  under development installation, requiring Python 3.11+ for the dev tools.
+  This requirement does not raise the product's Python 3.10+ floor.
+- The existing macOS setup script may remain linked as an optional source-install
+  helper, with its scope distinguished from the development installation.
+- No Linux/WSL setup scripts or setup-script tests are added. The previous
+  script proposal is deferred; revisit only on a separate operator request.
+
+Normative docs: `README.md` Quick Start and `docs/tutorials/quickstart.md` Step 1.
+Verification: documentation diff review and the full SDLC gate. This documentation
+change does not claim a fresh PyPI install or real-hardware runtime verification.

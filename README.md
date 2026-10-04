@@ -107,15 +107,30 @@ Comprehensive step-by-step tutorials and engineering deep dives are available in
 
 ## 🚀 Quick Start
 
-### Install from PyPI
+### Install from PyPI (recommended)
+
+Use Python **3.10+** on macOS Apple Silicon or Linux/WSL2. Install BenchRig in a virtual environment:
 
 ```bash
-pipx install benchrig                         # or: pip install benchrig
-pip install "benchrig[onnx-gpu]"       # + direct ONNX Runtime GenAI (CUDA) engine
-pip install "benchrig[charts]"         # + matplotlib charts
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install benchrig
 
 benchrig --version
-benchrig --check                              # diagnose runtimes and accelerators
+benchrig --check                         # diagnose runtimes and accelerators
+```
+
+Install optional extras in the same environment:
+
+```bash
+python -m pip install "benchrig[charts]"    # matplotlib charts
+python -m pip install "benchrig[onnx-gpu]"  # direct ONNX Runtime GenAI on NVIDIA CUDA
+```
+
+Configure your chosen runtime using the [runtime guide](docs/runtimes.md). For example, with Ollama running and
+`qwen2.5-coder:7b` installed:
+
+```bash
 benchrig --models qwen2.5-coder:7b --suite coding
 ```
 
@@ -123,35 +138,23 @@ Defaults (`config.yaml` and the scenario suites) are bundled in the package. Put
 working directory (or pass `--config` / `--scenarios-dir`, or set `BENCHRIG_CONFIG`) to override them. Direct ONNX models are
 looked up in `$BENCHRIG_MODEL_DIRS`, then `./models`, then `~/.benchrig/models`.
 
-### From source
+### Development installation from source
 
-### Option A: macOS (Apple Silicon M1 / M2 / M3 / M4)
-
-We provide an automated setup script that verifies your Apple Silicon chip, checks Python, creates a virtual environment, installs dependencies, and tests your Ollama connection:
-
-```bash
-git clone https://github.com/senssei/benchrig.git
-cd benchrig
-
-# Run the automated setup script:
-chmod +x setup_mac.sh
-./setup_mac.sh
-```
-
-### Option B: Linux / WSL2 (NVIDIA GeForce RTX)
+For working on BenchRig, use Python **3.11+** for the development tools. The package itself supports Python **3.10+**.
+The same development installation commands apply on macOS and Linux/WSL2:
 
 ```bash
 git clone https://github.com/senssei/benchrig.git
 cd benchrig
-
-# Create virtual environment & install in editable mode
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Run environment diagnostic check
+python -m pip install -e ".[dev]"
 benchrig --check
 ```
+
+See the [developer guide](docs/development.md) for checks and contribution workflow. On macOS Apple Silicon,
+`bash setup_mac.sh` is also available as a source-install helper for core dependencies and diagnostics;
+use the commands above when you need the development tools.
 
 ---
 

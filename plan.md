@@ -715,7 +715,7 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 
 ## Phase 12: Repo-quality hardening from independent review
 
-Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision. Item 12.3 approved by operator 2026-10-03 (spec drafted in `spec.md` §12.3); implementation shipped and independently reviewed twice (fresh-context `general-purpose` subagent). First review: 8 findings (1×P1, 2×P2, 5×nit) — all addressed. Second review: 5 prior fixes verified, 2 new nits raised — non-string `evaluator` value now rejected by `isinstance` check (added test), and dead `(or Decimal)` clause dropped from `spec.md`. sdlc_check.py exit 0; ready for operator release decision. Item 12.4 approved by operator 2026-10-03; completed 2026-10-04. Restored compatibility exports, package/source-module dispatch and helper lookups, and dispatch-test patch cleanup. Review: fresh-context Codex subagent `/root/review_cli`, three passes; three P2 findings reproduced red, fixed, and independently re-reviewed with no remaining findings (23 dispatch tests independently passed). Full gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS. Final `.venv/bin/python -m build` exit 0: wheel and sdist built; isolated dependencies required approved network escalation after sandbox DNS failure. Ready for operator release decision; no commit or push. Items 12.5, 12.7 remain proposed without spec.
+Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision. Item 12.3 approved by operator 2026-10-03 (spec drafted in `spec.md` §12.3); implementation shipped and independently reviewed twice (fresh-context `general-purpose` subagent). First review: 8 findings (1×P1, 2×P2, 5×nit) — all addressed. Second review: 5 prior fixes verified, 2 new nits raised — non-string `evaluator` value now rejected by `isinstance` check (added test), and dead `(or Decimal)` clause dropped from `spec.md`. sdlc_check.py exit 0; ready for operator release decision. Item 12.4 approved by operator 2026-10-03; completed 2026-10-04. Restored compatibility exports, package/source-module dispatch and helper lookups, and dispatch-test patch cleanup. Review: fresh-context Codex subagent `/root/review_cli`, three passes; three P2 findings reproduced red, fixed, and independently re-reviewed with no remaining findings (23 dispatch tests independently passed). Full gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS. Final `.venv/bin/python -m build` exit 0: wheel and sdist built; isolated dependencies required approved network escalation after sandbox DNS failure. Ready for operator release decision; no commit or push. Item 12.5 revised to PyPI-first installation documentation, authorized 2026-10-04; item 12.7 remains proposed without spec.
 
 - [x] **12.1 Sandbox docstring matches actual isolation level:** update docstrings in `benchrig/core/sandbox.py`, CLI `--help`, and docs to describe process-group isolation and disclose residual risks. Files: `benchrig/core/sandbox.py`, `benchrig/cli.py`, `docs/benchmark-suites.md`, `docs/development.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **12.2 Document coding suite is Python-only:** add clear Python-only scope statements and create `benchrig/data/scenarios/coding.README.md`. Files: `docs/benchmark-suites.md`, `README.md`, `benchrig/data/scenarios/coding.README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
@@ -740,14 +740,26 @@ Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator request
          Test: existing CLI tests must keep passing unchanged (`tests/test_benchmark_cli.py`, `test_cli_logging.py`, `test_cli_report_flags.py`, `test_cli_capacity_skip_notice.py`, `test_packaging.py`, `test_foundry_runtime.py`, `test_warmup_protocol.py`, `test_report_1to1.py`); add `tests/test_cli_dispatch.py` asserting that `benchrig.cli:main` routes `--check` (→ `run_system_check`), a benchmark run (→ `run_benchmarks`), and `--csv`/`--chart` (→ `save_outputs` in `report.py`) to the right subcommand module, that `benchrig --help` renders identically to today, and that every symbol tests import via `from benchrig.cli import X` keeps resolving after the restructure.
          Spec: `spec.md` §12.4 written. Status: completed 2026-10-04; gate and package build green, independent review clean.
 
-- [ ] <!-- Item 12.5: Add `setup_linux.sh` / `setup_wsl.sh` mirroring `setup_mac.sh`.
-         Files: setup_linux.sh (new), setup_wsl.sh (new — WSL guard, then sources setup_linux.sh).
-         No new test (script is exercised manually; CI runs the lint+test+build gate, not shell
-         bootstrap). The script must: detect WSL vs native Linux via `/proc/version` and `uname -r`,
-         verify NVIDIA via `nvidia-smi` (or `/usr/lib/wsl/lib/nvidia-smi` on WSL), check Python ≥ 3.10,
-         create `.venv`, `pip install -e ".[dev]"`, run `benchrig --check`, and `exit 1` on any step
-         that fails. README "Option B" will reference it as the bootstrap path.
-         Status: proposed; operator-side script (similar to Phase 3 — operator runs it once per host). -->
+### Item 12.5: Installation documentation — PyPI first
+
+Status: revised scope explicitly authorized by operator 2026-10-04 ("zrób to"
+after proposing PyPI-first instructions and deferring setup scripts).
+Completed: PyPI-first README/quickstart and separate development instructions.
+Verification: `python3 scripts/sdlc_check.py` exit 0 (460 passed, 4 skipped,
+4 subtests passed; lint, format, changelog PASS); `git diff --check` clean.
+No fresh package installation performed. No commit or push requested.
+Trivial documentation exception applies: stages 1–4/red-first tests skipped.
+
+- [x] **12.5 Installation instructions.** Files: `README.md`,
+  `docs/tutorials/quickstart.md`, `spec.md`, `plan.md`. Put virtualenv + PyPI
+  installation first, keep optional extras in that environment, and separate
+  repository development installation (Python 3.11+) from product use (3.10+).
+  Verification: review command consistency and run `python3 scripts/sdlc_check.py`
+  including existing `tests/test_docs.py` and `tests/test_packaging.py` coverage.
+
+Deferred: the Linux/WSL bootstrap scripts and their proposed tests. No runtime,
+intent, or invariant changes. PyPI downloads and live hardware checks are not
+part of this documentation-only task. No commit, push, or release requested.
 
 - [x] **12.6 Surface composite weights in LATEST_SUMMARY.md:** render active composite scoring weights in the metadata header of the markdown report. Files: `benchrig/reporting/markdown.py`, `benchrig/core/runner.py`, `tests/test_report_markdown.py`. Verification: `tests/test_report_markdown.py::CompositeWeightsHeaderTests`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
@@ -885,3 +897,58 @@ Status: completed (2026-10-03); all items 14.1–14.5 shipped; review complete (
 - [x] **14.3 Peak RSS at fixed context:** define process coverage and sampling, record workload parameters and report RSS alongside platform-specific GPU/UMA telemetry. Files: `benchrig/core/hardware.py`, `benchrig/core/runner.py`, `benchrig/reporting/markdown.py`, `benchrig/reporting/csv_export.py`, `docs/hardware-telemetry.md`. Verification: `tests/test_rss_sampling.py` verifying host RSS peak sampling, process coverage fallback (`client_only` vs `client_and_server`), and fixed-context workload recording. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **14.4 Warm-up and KV reuse protocol:** separate cold runs, warm model/runtime runs and verified prefix-cache reuse with repeated identical workloads. Files: `benchrig/cli.py`, `benchrig/core/runner.py`, `benchrig/core/client.py`, `docs/tutorials/cross-engine-benchmarking.md`. Verification: `tests/test_warmup_protocol.py` proving warm-ups are excluded from measured aggregates and unverified prefix reuse is labelled correctly. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **14.5 Executable-test evidence:** show pass counts/denominators and distinguish task success from assertion success, alongside per-task evidence and supplementary aggregate scores. Files: `benchrig/core/runner.py`, `benchrig/reporting/markdown.py`, `benchrig/reporting/csv_export.py`, `docs/benchmark-suites.md`, `CHANGELOG.md`. Verification: `tests/test_coding_metrics.py` covering disaggregated task vs assertion pass counts and reporting. Dependency: P0 verdict integrity is closed. Shipped 2026-10-03, sdlc_check.py exit 0.
+
+## Phase 15: Model selection for 12 GB VRAM (RTX 5070) — measured, not assumed (proposed)
+
+Status: proposed (2026-10-04); **pending operator approval** before any item moves to `approved` and `spec.md` is updated.
+Origin: external feedback recommending Qwen3 32B Q4_K_M / GLM 32B Q4 / DeepSeek-R1 Distill 32B Q4 over a 78B IQ2 model
+(Kolibri-1) on an RTX 5070 12 GB for LM Studio (architecture, IoT, code, PowerShell, analysis). The feedback contained no
+measurements; this phase turns its claims into hypotheses that benchrig can confirm or reject on the operator's host.
+
+Hypotheses to test (none verified yet):
+
+- H1: a 32B Q4_K_M (~19-20 GB) does not fit in 12 GB VRAM, so it runs with partial CPU offload; the claimed "2-4x more
+  tokens/s" over 78B IQ2 (~22-26 GB, also offloaded) is more plausibly ~1.5-2x and depends on RAM bandwidth and context.
+- H2: IQ2 degrades code and strict-format output (PowerShell, JSON) enough that a 32B Q4 wins on `coding`/`polish` quality.
+- H3: models that fit entirely in VRAM (e.g. Qwen3 14B Q4/Q5) or MoE models with few active parameters (Qwen3-30B-A3B,
+  Qwen3-Coder-30B-A3B) beat the dense 32B on tokens/s at comparable quality — the feedback did not consider them.
+- H4: reasoning-distilled models (DeepSeek-R1 Distill 32B) lose on effective answer latency because of long thinking
+  traces; `answer_ttft_sec` / `thinking_chars` (Phase 6) should show it.
+- Unverified names: "glm-5.3 32B" and "Kolibri-1 78B" must be confirmed to exist (and in which quant) before they enter a run.
+
+- [ ] <!-- Item 15.1: Candidate matrix and run protocol (docs only).
+         Files: docs/tutorials/model-selection-12gb.md (new), mkdocs.yml (register page).
+         Content: the candidate list (Qwen3 14B Q4/Q5, Qwen3-30B-A3B Q4, Qwen3-Coder-30B-A3B Q4, Qwen3 32B Q4_K_M,
+         DeepSeek-R1 Distill 32B Q4, GLM 32B Q4 once its name is verified, Kolibri-1 78B IQ2 as benchmark-only), the fixed
+         context (reuse 14.3's fixed-context workload), `--runs 3`, warm-up protocol from 14.4, suites
+         `coding,reasoning,polish,speed`, and the recorded host facts (RAM size/type/speed, driver, context length,
+         KV-cache quantization).
+         Test: tests/test_docs.py presence check for the page and the mkdocs nav entry.
+         Status: proposed. -->
+
+- [ ] <!-- Item 15.2: Record how much of a model ran on the GPU (partial offload fraction).
+         Files: benchrig/core/client.py / benchrig/core/runtimes.py (read offloaded-layer info where the runtime exposes
+                it, e.g. Ollama `/api/ps` size vs size_vram), benchrig/reporting/markdown.py, benchrig/reporting/csv_export.py.
+         Builds on 14.1 (requested/observed placement): that item records provider/device and CPU fallback, but nothing
+         in the repo captures a *partial* GPU/CPU split, which is exactly the regime of H1/H3. Report as
+         "unavailable" (not 0%) when the runtime does not expose it.
+         Test: fake-server tests for the exposed and not-exposed cases; markdown/CSV rendering tests (hermetic).
+         Open question: LM Studio is the feedback's target runtime; benchrig has no LM Studio client. Decide whether to
+         benchmark the same GGUFs via Ollama (llama.cpp) as a proxy, or add an OpenAI-compatible runtime for LM Studio.
+         Status: proposed; needs a spec and an operator decision on the runtime question. -->
+
+- [ ] <!-- Item 15.3: Real run and results note (documentation, not code).
+         Files: results/ (run JSON, as for other runs), docs/ (short results note).
+         Run the matrix from 15.1 on the RTX 5070 12 GB host, record tok/s, TTFT, answer latency, peak VRAM/RSS and suite
+         scores per model; state for each of H1-H4 whether it held, with the numbers. Feeds the operator's default-model
+         choice for LM Studio; the 78B IQ2 stays a benchmark data point only.
+         Status: proposed; needs real hardware and enough free VRAM (opt-in, like the other live runs). -->
+
+Risks and open questions:
+
+- Offloaded 32B/78B runs are slow (single-digit tok/s); a full `--suite all --runs 3` may take hours per model. Order the
+  matrix so the fast, fits-in-VRAM models run first and give a result early.
+- `generic-cpu`/offload results depend on RAM bandwidth; do not generalize them to other hosts.
+- Quant names (Q4_K_M, IQ2) are llama.cpp/GGUF concepts; Prism/ONNX int4 is not directly comparable (see Phase 4 and the
+  ONNX-int4-vs-Ollama open item in `scratch/TODO.md` §4).
+- Per the `plan.md` header rule, **no item may start implementation until `spec.md` is updated** and the operator approves it.

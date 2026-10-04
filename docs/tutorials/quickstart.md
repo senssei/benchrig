@@ -26,21 +26,38 @@ Before beginning, ensure you have:
 
 ## 🛠 Step 1: Environment Setup
 
-Clone the repository and install dependencies in an isolated virtual environment:
+Install the published package from PyPI in a virtual environment using Python **3.10+**.
+These commands work on macOS Apple Silicon and Linux/WSL2:
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/senssei/benchrig.git
-cd benchrig
-
-# 2. Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# 3. Install core dependencies
-pip install --upgrade pip
-pip install -e .
+python -m pip install benchrig
 ```
+
+Optional extras use that same environment:
+
+```bash
+python -m pip install "benchrig[charts]"    # PNG chart export
+python -m pip install "benchrig[onnx-gpu]"  # direct ONNX Runtime GenAI on NVIDIA CUDA
+```
+
+See the [runtime guide](../runtimes.md) for Ollama, Foundry Local, direct ONNX and Prism setup.
+
+### For developers: install from the repository
+
+Use Python **3.11+** for the development dependencies. This requirement applies to development tools;
+the published BenchRig package supports Python **3.10+**.
+
+```bash
+git clone https://github.com/senssei/benchrig.git
+cd benchrig
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+See the [developer guide](../development.md) for checks and contribution workflow.
 
 ---
 
