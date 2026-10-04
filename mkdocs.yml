@@ -59,6 +59,10 @@ nav:
       - Custom scenarios: tutorials/custom-scenarios.md
       - Foundry GPU setup (WSL2 / Linux): tutorials/foundry-gpu-setup.md
       - Foundry, CUDA & TensorRT on WSL2: foundry-wsl-cuda-tensorrt.md
+  - Historical analyses:
+      - Archive: analysis/index.md
+      - Run analysis (2026-09-23): analysis/2026-09-23/RUN_ANALYSIS.md
+      - Anomaly verification (2026-09-23): analysis/2026-09-23/ANOMALY_VERIFICATION.md
   - Project:
       - Architecture: architecture.md
       - Development: development.md

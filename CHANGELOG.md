@@ -10,6 +10,7 @@ versions may include breaking changes).
 - **Sandbox verdict integrity and trust boundary (P0).** Candidate stdout and stderr no longer determine coding benchmark verdicts or test counts. The sandbox now communicates test execution status out-of-band via a temporary result file verified with a secret token, enforces caller-provided total test counts, and treats premature exits (such as `SystemExit(0)`) or forged stdout markers as test failures.
 
 ### Changed
+- Moved manual September benchmark investigations into a dated documentation archive, with historical scope and source-artifact availability clearly identified.
 - Split the CLI into command modules while preserving flags, help text, entry points, and existing package imports.
 - **Repo-quality hardening and documentation batch (Phase 12, items 12.1, 12.2, 12.9, 12.10).**
   - Clarified sandbox execution model and residual risk: docstrings in `benchrig/core/sandbox.py` and documentation in `docs/benchmark-suites.md` and `docs/development.md` now define execution as process-group subprocess isolation rather than OS-level sandboxing, disclosing interpreter-level residual risks.

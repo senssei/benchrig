@@ -105,6 +105,8 @@ Comprehensive step-by-step tutorials and engineering deep dives are available in
 
 ---
 
+Historical benchmark investigations are kept in the [analysis archive](docs/analysis/index.md).
+
 ## 🚀 Quick Start
 
 ### Install from PyPI (recommended)

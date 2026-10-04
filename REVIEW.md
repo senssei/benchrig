@@ -70,3 +70,17 @@ Author verification: `python3 scripts/sdlc_check.py` exit 0 (460 passed, 4 skipp
 wheel and sdist built. Initial build dependency installation failed under sandbox DNS
 restrictions; the final build used approved network escalation. Operator shipping decision
 remains pending; no commit or push performed. Previously reviewed reasoning changes preserved.
+
+
+## Item 12.7 review — 2026-10-04
+
+Fresh-context read-only reviewer `/root/review_analysis`: no actionable findings.
+Independently verified 7 documentation tests, 62 relative Markdown link targets,
+and MkDocs YAML/archive navigation. Historical scope/provenance notices reviewed.
+Original files were Git-ignored and moved locally; no independent byte comparison
+with the original bodies was possible. Author used rename and inserted notices.
+
+Author gate: `python3 scripts/sdlc_check.py` exit 0 (460 passed, 4 skipped,
+4 subtests passed; lint, format, changelog PASS). `git diff --check` clean.
+MkDocs build remains unverified: MkDocs is not installed in `.venv`.
+No fresh runtime benchmarks, commit, push, or site publication performed.

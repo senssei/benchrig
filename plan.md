@@ -481,7 +481,7 @@ window of exactly 0.0 was not flagged; (3, Medium) Ollama was flagged although i
 only); (9, Medium) no Phase 10 text in `spec.md`, wrong scorecard key in CHANGELOG, no legend; (16, Info) untested
 boundaries, non-streaming path, Ollama, runner propagation, older run JSON — all fixed test-first (13, the
 whole-scorecard `~` over-warning, is deferred with the operator's yes: see Backlog). Surface surfaced during
-the Sept 22 anomaly verification (`results/ANOMALY_VERIFICATION.md`). A measurement floor
+the Sept 22 anomaly verification (`docs/analysis/2026-09-23/ANOMALY_VERIFICATION.md`). A measurement floor
 in `benchrig/core/client.py` (`eval_duration_sec = max(0.001, end_wall_time -
 first_token_time)`) prevents divide-by-zero on sub-millisecond generations, but the
 resulting displayed speed is a meaningless ceiling (`eval_count=3 / 0.001s = 3000.0 t/s`
@@ -715,7 +715,7 @@ Re-scope into a numbered phase (with its own `spec.md` section and operator appr
 
 ## Phase 12: Repo-quality hardening from independent review
 
-Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision. Item 12.3 approved by operator 2026-10-03 (spec drafted in `spec.md` §12.3); implementation shipped and independently reviewed twice (fresh-context `general-purpose` subagent). First review: 8 findings (1×P1, 2×P2, 5×nit) — all addressed. Second review: 5 prior fixes verified, 2 new nits raised — non-string `evaluator` value now rejected by `isinstance` check (added test), and dead `(or Decimal)` clause dropped from `spec.md`. sdlc_check.py exit 0; ready for operator release decision. Item 12.4 approved by operator 2026-10-03; completed 2026-10-04. Restored compatibility exports, package/source-module dispatch and helper lookups, and dispatch-test patch cleanup. Review: fresh-context Codex subagent `/root/review_cli`, three passes; three P2 findings reproduced red, fixed, and independently re-reviewed with no remaining findings (23 dispatch tests independently passed). Full gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS. Final `.venv/bin/python -m build` exit 0: wheel and sdist built; isolated dependencies required approved network escalation after sandbox DNS failure. Ready for operator release decision; no commit or push. Item 12.5 revised to PyPI-first installation documentation, authorized 2026-10-04; item 12.7 remains proposed without spec.
+Status: approved for items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 (operator requests 2026-10-03); items 12.1, 12.2, 12.6, 12.8, 12.9, 12.10 completed and independently reviewed (all findings triaged and resolved); sdlc_check.py exit 0; ready for operator release decision. Item 12.3 approved by operator 2026-10-03 (spec drafted in `spec.md` §12.3); implementation shipped and independently reviewed twice (fresh-context `general-purpose` subagent). First review: 8 findings (1×P1, 2×P2, 5×nit) — all addressed. Second review: 5 prior fixes verified, 2 new nits raised — non-string `evaluator` value now rejected by `isinstance` check (added test), and dead `(or Decimal)` clause dropped from `spec.md`. sdlc_check.py exit 0; ready for operator release decision. Item 12.4 approved by operator 2026-10-03; completed 2026-10-04. Restored compatibility exports, package/source-module dispatch and helper lookups, and dispatch-test patch cleanup. Review: fresh-context Codex subagent `/root/review_cli`, three passes; three P2 findings reproduced red, fixed, and independently re-reviewed with no remaining findings (23 dispatch tests independently passed). Full gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS. Final `.venv/bin/python -m build` exit 0: wheel and sdist built; isolated dependencies required approved network escalation after sandbox DNS failure. Ready for operator release decision; no commit or push. Item 12.5 revised to PyPI-first installation documentation, authorized 2026-10-04; item 12.7 relocated and independently reviewed 2026-10-04; gate green, MkDocs build unverified (not installed).
 
 - [x] **12.1 Sandbox docstring matches actual isolation level:** update docstrings in `benchrig/core/sandbox.py`, CLI `--help`, and docs to describe process-group isolation and disclose residual risks. Files: `benchrig/core/sandbox.py`, `benchrig/cli.py`, `docs/benchmark-suites.md`, `docs/development.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
 - [x] **12.2 Document coding suite is Python-only:** add clear Python-only scope statements and create `benchrig/data/scenarios/coding.README.md`. Files: `docs/benchmark-suites.md`, `README.md`, `benchrig/data/scenarios/coding.README.md`. Shipped 2026-10-03, sdlc_check.py exit 0.
@@ -763,20 +763,30 @@ part of this documentation-only task. No commit, push, or release requested.
 
 - [x] **12.6 Surface composite weights in LATEST_SUMMARY.md:** render active composite scoring weights in the metadata header of the markdown report. Files: `benchrig/reporting/markdown.py`, `benchrig/core/runner.py`, `tests/test_report_markdown.py`. Verification: `tests/test_report_markdown.py::CompositeWeightsHeaderTests`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
-- [ ] <!-- Item 12.7: Either auto-generate the analysis reports or move them under `docs/analysis/`.
-         Files: benchrig/reporting/markdown.py (add `generate_run_analysis(scorecard, anomalies)` and
-                `generate_anomaly_verification(scorecard)` writers that produce the content currently
-                hand-written in results/RUN_ANALYSIS.md and results/ANOMALY_VERIFICATION.md),
-                benchrig/cli.py (call them after each run when `--analysis-dir` is set),
-                benchrig/reporting/common.py (shared anomaly detector). Alternative direction (operator
-                chooses during spec): move the existing hand-written files to docs/analysis/<date>/ and
-                stop pretending they are machine-generated.
-         Test: tests/test_report_analysis.py (new) — given a synthetic scorecard with one anomalous
-               model (composite score 3 standard deviations from the mean), the generated analysis
-               markdown mentions that anomaly by run_id and shows the deviation value; given a clean
-               scorecard, the "anomalies" section is empty.
-         Open question: needs operator decision on generate-vs-move before spec.
-         Status: proposed; gated on operator direction. -->
+### Item 12.7: Move historical analyses into documentation
+
+Status: implementation authorized by operator direction 2026-10-04 ("przeneisc");
+completed: analyses relocated and labelled, archive index/nav/links updated.
+Gate exit 0: 460 passed, 4 skipped, 4 subtests passed; lint, format, changelog PASS.
+Independent read-only review `/root/review_analysis`: no actionable findings;
+7 docs tests passed, 62 relative links checked, MkDocs YAML/navigation verified.
+MkDocs build unverified (not installed). Original ignored-file byte parity was
+not independently verified; relocation preserved bodies via rename and added notices.
+Documentation-only change; no new implementation-mirroring tests. Ready for
+operator decision; no commit, push or publication.
+
+- [x] **12.7 Relocate and label historical analyses.** Files:
+  `results/RUN_ANALYSIS.md` → `docs/analysis/2026-09-23/RUN_ANALYSIS.md`,
+  `results/ANOMALY_VERIFICATION.md` → `docs/analysis/2026-09-23/ANOMALY_VERIFICATION.md`,
+  `docs/analysis/index.md`, `mkdocs.yml`, `README.md`, `docs/index.md`,
+  `CHANGELOG.md`, `spec.md`, `plan.md`. Verification:
+  `tests/test_docs.py::DocsCoverageTests::test_every_page_is_in_the_nav_and_every_nav_entry_exists`,
+  link/content review, `python3 scripts/sdlc_check.py`, fresh independent review.
+
+Risks: source analyses are ignored local files, while source run JSON/CSV/PNG
+remain unversioned. Preserve source paths as provenance and explicitly disclose
+that inputs may be unavailable in a fresh checkout. Historical findings are not
+revalidated or rewritten as current claims. No intent/invariant changes or shipping.
 
 - [x] **12.8 Pin extract_python_code single-vs-multi-fence dedent behavior:** add regression tests pinning single-fence dedent, multi-fence indentation preservation, and zero-fence fallback. Files: `tests/test_sandbox.py`. Verification: `tests/test_sandbox.py::ExtractPythonCodeDedentTests`. Shipped 2026-10-03, sdlc_check.py exit 0.
 
@@ -786,7 +796,7 @@ part of this documentation-only task. No commit, push, or release requested.
 Risks and open questions:
 
 - Items 12.4 and 12.7 are the largest in scope. Defer them if the operator wants the quick wins (12.1, 12.2, 12.6, 12.8, 12.9, 12.10) shipped first.
-- Item 12.7 needs a direction decision (auto-generate vs. move under `docs/analysis/`) before it can be specified properly.
+- Item 12.7 direction chosen 2026-10-04: relocate historical analyses; automated analysis is outside scope.
 - Items 12.1, 12.2, 12.9, 12.10 are docs-only and can be approved in a single batch with no code or test churn — good candidate for the next sprint's "boring but valuable" work.
 - Per `plan.md` header rule, **no item may start implementation until `spec.md` is updated** for the behavior it adds and the operator approves the item. The Phase 11 pattern (spec section first, then per-item approve-and-implement) applies.
 

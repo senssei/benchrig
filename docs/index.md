@@ -43,6 +43,8 @@ Reports land in `results/` (`LATEST_SUMMARY.md`, `latest.json`, and one JSON fil
 | Write my own scenarios | [Scenario reference](scenarios.md), [Custom scenarios](tutorials/custom-scenarios.md) |
 | Understand or extend the code | [Architecture](architecture.md), [Development](development.md) |
 
+Historical benchmark investigations are available in the [analysis archive](analysis/index.md).
+
 ## Related projects
 
 - [prism-local](https://github.com/senssei/prism-local): local server and CLI for ONNX Runtime GenAI and Ollama; benchmarked here as the `prism` runtime.

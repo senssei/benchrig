@@ -534,3 +534,26 @@ This is documentation only; product requirements and runtime behavior are unchan
 Normative docs: `README.md` Quick Start and `docs/tutorials/quickstart.md` Step 1.
 Verification: documentation diff review and the full SDLC gate. This documentation
 change does not claim a fresh PyPI install or real-hardware runtime verification.
+
+
+### 12.7 Historical analyses in documentation
+
+Operator chose relocation on 2026-10-04 ("przeneisc"). Move the existing local,
+Git-ignored `results/RUN_ANALYSIS.md` and `results/ANOMALY_VERIFICATION.md` into
+`docs/analysis/2026-09-23/`, matching their recorded authorship date rather than
+individual benchmark timestamps. Preserve findings, numbers and code excerpts.
+Add a historical/manual-analysis notice explaining that recommendations and line
+numbers describe the reviewed September state, not current runtime guarantees.
+
+Add `docs/analysis/index.md` with links to both dated analyses and their provenance.
+Register all three pages in MkDocs navigation and link the index from README and
+the docs home. Add a relative link between the two analyses. Historical source
+artifact paths remain code-formatted repository-relative provenance: ignored
+JSON/CSV/PNG results are not bundled and must not become broken website links.
+Update the active historical reference in plan.md and record the relocation in
+CHANGELOG.md. No CLI flag, automatic analysis writer, anomaly detector, runtime
+change, raw-result migration, or publication is part of this scope.
+
+Verification: existing docs navigation coverage, Markdown link review, full SDLC
+gate and independent read-only review. Source documents must be present before
+moving; missing source files stop the relocation instead of inventing content.
