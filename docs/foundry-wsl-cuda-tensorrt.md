@@ -174,7 +174,7 @@ To redirect a CPU-targeted ONNX model onto CUDA cores:
 # Environment & runtime diagnostics across installed models
 benchrig --check
 
-# Run 1:1 speed comparison
+# Speed comparison (different models; see the caveat in section 7)
 benchrig --runtime all --models "ollama:phi3:mini,foundry:Phi-3.5-mini-instruct-generic-cpu" --suite speed
 
 # Run automated coding sandbox evaluation
@@ -214,10 +214,37 @@ benchrig \
   --baseline results/runs/benchmark_20260918_212608.json
 ```
 
-### Verified Benchmark Results (RTX 5070 WSL2)
+### Same-model comparison (RTX 5070 WSL2, Phi-4-mini, coding suite, 3 runs each)
+All three columns run **Phi-4-mini (3.8B)**. Ollama uses the GGUF `Q4_K_M` build; direct ONNX GenAI and Foundry use int4 ONNX weights
+(`gpu-int4-rtn-block-32`; the Foundry cache holds the GPU weights injected as described in section 8, under a `generic-cpu` name).
+The quantizations differ, so a speed gap may come from the weights format rather than the runtime alone. Run 2026-10-17.
+
+| Metric | Ollama `phi4-mini` (llama.cpp CUDA) | Direct ONNX GenAI | MS Foundry daemon `phi-4-mini` |
+|:---|:---:|:---:|:---:|
+| **Decode speed (mean, range over 3 runs)** | **149.1 tok/s** (146.1-150.9) | 123.7 tok/s (116.9-127.8) | 118.3 tok/s (114.4-126.0) |
+| **Coding assertions passed** | 51/51 | 51/51 | 51/51 |
+| **Composite score** | 70.0 | 70.0 | 70.0 |
+| **Average TTFT** | 0.04s | not measured | 0.09s |
+| **Cold start** | 3.6s | 0.8s | 93.9s (daemon model load) |
+
+Not compared: VRAM and prefill. The Foundry run started with another process holding 5.1 GB of VRAM, so its memory delta is not
+comparable, and the ONNX path reports no engine prefill timing. Foundry's `observed_device` is `unknown`, so GPU execution rests on the
+CUDA `provider_options` above, not on a measurement in this run. Raw data: `results/runs/benchmark_20261017_193416.json` (Ollama),
+`benchmark_20261017_193454.json` (ONNX), `benchmark_20261017_193333.json` (Foundry).
+
+On the same model all three runtimes tie on quality and Ollama is about 1.2x faster at decode than either ONNX path. The earlier
+"Foundry/ONNX 100% vs Ollama 17.6%" gap came from comparing Phi-4-mini with Phi-3, not from the runtime.
+
+#### Earlier results with mismatched models (kept for history)
+
+> **Caveat: these columns use three different models** - Ollama `phi3:mini` (Phi-3), Foundry `Phi-3.5-mini` and ONNX `Phi-4-mini`.
+> Differences in speed, coding pass rate and VRAM therefore mix the runtime effect with the model effect (parameter count, quantization,
+> training data) and **must not be read as "runtime X beats runtime Y"**. For a runtime comparison, run the *same* model family and a
+> comparable quantization on every runtime, e.g. `ollama:phi4-mini` vs `onnx-gpu:Phi-4-mini-instruct-cuda-gpu`.
+
 | Metric | Ollama (`phi3:mini`) | MS Foundry CLI (`Phi-3.5-mini`) | Direct ONNX GenAI (`Phi-4-mini-cuda`) |
 |:---|:---:|:---:|:---:|
-| **Decode Speed** | 94.0 tok/s | 9.2 tok/s | **119.4 tok/s** (1.3x Ollama, 13x Foundry CPU) |
+| **Decode Speed** | 94.0 tok/s | 9.2 tok/s | **119.4 tok/s** |
 | **Prefill Speed** | 2,639.8 tok/s | 47.8 tok/s | **4,528.0 tok/s** |
 | **Average TTFT** | 0.21s | 2.08s | **0.05s** (50ms) |
 | **Coding Pass Rate** | 17.6% | 29.4% | **100.0%** (17/17 tests passed) |
@@ -282,18 +309,22 @@ foundry model load phi-4-mini
 nvidia-smi
 ```
 
-### Verified Option 2 Benchmark Results (NVIDIA GeForce RTX 5070 WSL2)
+### Option 2 Measured Results (NVIDIA GeForce RTX 5070 WSL2) - not a like-for-like comparison
+> **Caveat:** the Ollama column ran `phi3:mini` (Phi-3) and the Foundry column ran `phi-4-mini` (Phi-4). The "Delta" column compares two
+> different models, so it says nothing reliable about Foundry versus Ollama. Re-run both runtimes on the same model before drawing
+> a runtime conclusion.
+
 Measured via `benchrig --runtime foundry --models foundry:phi-4-mini --suite coding --baseline <ollama_run>.json`:
 
-| Evaluation Metric | Ollama (`phi3:mini`) [llama.cpp CUDA] | MS Foundry Native Daemon (`phi-4-mini`) [ONNX GenAI CUDA] | Delta / Advantage |
+| Evaluation Metric | Ollama (`phi3:mini`) [llama.cpp CUDA] | MS Foundry Native Daemon (`phi-4-mini`) [ONNX GenAI CUDA] | Observed difference (different models) |
 |:---|:---:|:---:|:---:|
-| **Decode Speed** | 94.0 tok/s | **130.2 tok/s** | **MS Foundry 1.4x faster** (vs 9.2 tok/s CPU: **14.2x speedup**) |
-| **Prompt Prefill Speed** | 2,639.8 tok/s | **1,006.8 tok/s** | Ollama 2.6x faster |
-| **Time to First Token (TTFT)** | 0.21s | **0.09s (90 ms)** | **MS Foundry 2.3x lower latency** |
-| **Coding Pass Rate** | 17.6% | **100.0% (17/17 tests)** | **MS Foundry +82.4%** |
+| **Decode Speed** | 94.0 tok/s | **130.2 tok/s** | 130.2 vs 94.0 tok/s; the 9.2 tok/s CPU row is a different device and model |
+| **Prompt Prefill Speed** | 2,639.8 tok/s | **1,006.8 tok/s** | 2.6x higher on Ollama |
+| **Time to First Token (TTFT)** | 0.21s | **0.09s (90 ms)** | 0.09s vs 0.21s |
+| **Coding Pass Rate** | 17.6% | **100.0% (17/17 tests)** | 100% vs 17.6%; model quality dominates this metric |
 | **Process in `nvidia-smi`** | `ollama_llama_server` (Compute `C`) | `foundrylocald.real` (Compute `C`) | Both verified native GPU compute |
 | **Peak VRAM Memory** | 11,135 MB | **10,875 MB** | 100% fits within 12GB VRAM |
-| **Composite Score** | 31.1 / 100 | **64.0 / 100** | **MS Foundry leads (+32.9)** |
+| **Composite Score** | 31.1 / 100 | **64.0 / 100** | 64.0 vs 31.1 |
 
-Option 2 proves that Microsoft Foundry Local's native service daemon running in WSL2 is fully capable of serving high-performance CUDA-accelerated models over standard OpenAI-compatible endpoints with zero cloud token cost.
+Option 2 shows that Microsoft Foundry Local's native service daemon running in WSL2 can serve CUDA-accelerated models over standard OpenAI-compatible endpoints with zero cloud token cost.
 

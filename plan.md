@@ -1132,3 +1132,15 @@ recorded separately from red evidence; final red reasons are missing behavior.
 Build without isolation was unavailable because local setuptools is absent; the
 standard isolated build succeeded using previously approved build escalation.
 Existing staged operator changes preserved; no index or Git configuration changes.
+
+---
+
+## Phase 17: Same-model runtime comparison (docs correction)
+
+Status: executed 2026-10-17 (operator: "plan and execute"). Docs and measurement only, no code change.
+
+- [x] <!-- Item 17.1: Replace the mismatched-model tables in docs/foundry-wsl-cuda-tensorrt.md with a Phi-4-mini run on Ollama and direct ONNX GenAI.
+         Files: docs/foundry-wsl-cuda-tensorrt.md. Evidence: results/runs/benchmark_20261017_192602.json (Ollama),
+                benchmark_20261017_192641.json (ONNX). Result: equal 100% coding pass, Ollama 164.5 vs 138.9 tok/s decode.
+         Follow-up 2026-10-17: restarted the Foundry daemon and re-ran all three with --runs 3 (Ollama 149.1, ONNX 123.7, Foundry 118.3 tok/s, all 51/51).
+         Not covered: VRAM (Foundry baseline dirty), ONNX prefill/TTFT (not measured), Foundry observed_device (unknown). -->
